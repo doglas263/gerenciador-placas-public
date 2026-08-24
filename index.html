@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gerenciador de Placas</title>
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">▦</span>
+    <div>
+      <h1>Gerenciador de Placas</h1>
+      <p class="sub">Controle e comparação da frota por período</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button id="btn-reiniciar" class="btn-restart" title="Reiniciar servidor para aplicar atualizações">↺ Reiniciar</button>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-tab="importar">Importar</button>
+    <button class="tab" data-tab="inventario">Inventário</button>
+    <button class="tab" data-tab="comparar">Comparar</button>
+    <button class="tab" data-tab="continuidade">Continuidade</button>
+    <button class="tab" data-tab="verificar">Verificar base</button>
+    <button class="tab" data-tab="resumo">Resumo</button>
+    <button class="tab" data-tab="auditoria">Auditoria</button>
+    <button class="tab" data-tab="stress">Stress Test</button>
+    <button class="tab" data-tab="telemetria">Telemetria</button>
+  </nav>
+</header>
+
+<main>
+  <!-- IMPORTAR -->
+  <section id="importar" class="panel active">
+    <h2>Central de Importações</h2>
+    <p class="hint">Gerencie todos os dados importados no sistema. Cada fonte tem controle independente de importação e download.</p>
+
+    <!-- Publicar para Web -->
+    <div class="imp-card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+      <div class="imp-card-hdr">
+        <div class="imp-card-title">
+          <h3>Publicar para Web <span class="badge blue">GitHub Pages</span></h3>
+          <span class="hint">Exporta um snapshot dos dados e envia ao repositório GitHub configurado em <code>web-public/</code>. A página pública atualiza em ~30 segundos.</span>
+        </div>
+        <span id="pub-status" class="imp-status"></span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="pub-btn" class="btn primary">⬆ Publicar agora</button>
+        <span class="hint">Certifique-se de que <code>web-public/</code> é um repositório git com remote configurado.</span>
+      </div>
+    </div>
+
+    <!-- FT FreighTech — card destaque -->
+    <div class="imp-card imp-card-ft">
+      <div class="imp-card-hdr">
+        <div class="imp-card-title">
+          <h3>FreighTech <span class="badge gray">FT</span></h3>
+          <span class="hint">ARMAZEM · AS · ROTA · INSUMOS · EMPURRADA — cada aba é classificada automaticamente. Se o período já existir, os dados são substituídos.</span>
+        </div>
+        <span id="ft-status-bar" class="imp-status"></span>
+      </div>
+      <div id="dropzone" class="dropzone">
+        <input type="file" id="file-input" multiple accept=".xlsx,.xlsm">
+        <div class="dz-inner">
+          <span class="dz-icon">⤓</span>
+          <p><strong>Solte os arquivos aqui</strong> ou clique para escolher</p>
+          <p class="hint">Pode importar vários de uma vez.</p>
+        </div>
+      </div>
+      <div id="import-status"></div>
+      <div id="import-resultado"></div>
+      <div class="imp-dl-row">
+        <label class="imp-dl-label">De <input type="date" id="ft-dl-ini" class="imp-date"></label>
+        <label class="imp-dl-label">Até <input type="date" id="ft-dl-fim" class="imp-date"></label>
+        <button id="ft-dl-btn" class="btn">⤓ Baixar dados</button>
+      </div>
+    </div>
+
+    <!-- Grade 2×2 das outras fontes -->
+    <div class="imp-grid">
+
+      <!-- Checklist T2 -->
+      <div class="imp-card">
+        <div class="imp-card-hdr">
+          <div class="imp-card-title">
+            <h3>Checklist de Saídas <span class="badge blue">T2</span></h3>
+            <span class="hint">Caminhão · Van · AS — deduplicação automática por placa + data</span>
+          </div>
+        </div>
+        <div id="checklist-status-bar" class="imp-status"></div>
+        <div class="filtros">
+          <label class="filebtn">
+            <input type="file" id="saida-file" multiple accept=".xlsx,.xlsm">
+            <span id="saida-file-nome">📋 Selecionar planilha(s)</span>
+          </label>
+          <button id="saida-import-btn" class="btn primary">Importar</button>
+        </div>
+        <div id="saida-import-status"></div>
+        <div class="imp-dl-row">
+          <label class="imp-dl-label">De <input type="date" id="checklist-dl-ini" class="imp-date"></label>
+          <label class="imp-dl-label">Até <input type="date" id="checklist-dl-fim" class="imp-date"></label>
+          <button id="checklist-dl-btn" class="btn">⤓ Baixar dados</button>
+        </div>
+      </div>
+
+      <!-- Unidocs T1 -->
+      <div class="imp-card">
+        <div class="imp-card-hdr">
+          <div class="imp-card-title">
+            <h3>Unidocs <span class="badge blue">T1</span></h3>
+            <span class="hint">Cavalo · Carreta · CT-e — chave: placa cavalo + carreta + data</span>
+          </div>
+        </div>
+        <div id="unidocs-status-bar" class="imp-status"></div>
+        <div class="filtros">
+          <label class="filebtn">
+            <input type="file" id="saida-t1-file" multiple accept=".csv,.txt">
+            <span id="saida-t1-file-nome">📋 Selecionar CSV Unidocs</span>
+          </label>
+          <button id="saida-t1-import-btn" class="btn primary">Importar</button>
+        </div>
+        <div id="saida-t1-import-status"></div>
+        <div class="imp-dl-row">
+          <label class="imp-dl-label">De <input type="date" id="unidocs-dl-ini" class="imp-date"></label>
+          <label class="imp-dl-label">Até <input type="date" id="unidocs-dl-fim" class="imp-date"></label>
+          <button id="unidocs-dl-btn" class="btn">⤓ Baixar dados</button>
+        </div>
+      </div>
+
+      <!-- Geotab -->
+      <div class="imp-card">
+        <div class="imp-card-hdr">
+          <div class="imp-card-title">
+            <h3>Geotab <span class="badge amber">Telemetria</span></h3>
+            <span class="hint">XLSX — aba Data · placa col A · grupo col B (UNI_)</span>
+          </div>
+          <a href="/api/download/geotab" class="btn">⤓ Baixar dados</a>
+        </div>
+        <div id="geo-status" class="imp-status"></div>
+        <div class="filtros">
+          <label class="filebtn">
+            <input type="file" id="geo-file" accept=".xlsx,.xlsm">
+            <span id="geo-file-nome">📡 Selecionar arquivo Geotab</span>
+          </label>
+          <button id="geo-import-btn" class="btn primary">Importar</button>
+        </div>
+      </div>
+
+      <!-- Trimble -->
+      <div class="imp-card">
+        <div class="imp-card-hdr">
+          <div class="imp-card-title">
+            <h3>Trimble <span class="badge amber">Telemetria</span></h3>
+            <span class="hint">CSV — coluna VEÍCULO · placa = últimos 7 caracteres</span>
+          </div>
+          <a href="/api/download/trimble" class="btn">⤓ Baixar dados</a>
+        </div>
+        <div id="tri-status" class="imp-status"></div>
+        <div class="filtros">
+          <label class="filebtn">
+            <input type="file" id="tri-file" accept=".csv,.txt">
+            <span id="tri-file-nome">📡 Selecionar arquivo Trimble</span>
+          </label>
+          <button id="tri-import-btn" class="btn primary">Importar</button>
+        </div>
+      </div>
+
+    </div><!-- /imp-grid -->
+
+    <!-- Análise de lacunas -->
+    <div class="import-separator"></div>
+    <h3>Lacunas de vigência</h3>
+    <p class="hint">Verifique quais quinzenas estão faltando no banco de dados para o intervalo selecionado.</p>
+    <div class="filtros">
+      <label>De
+        <div class="periodo-pair">
+          <input type="month" id="gap-de-mes" style="min-width:140px">
+          <select id="gap-de-q"><option value="1">1ª quinzena</option><option value="2">2ª quinzena</option></select>
+        </div>
+      </label>
+      <label>Até
+        <div class="periodo-pair">
+          <input type="month" id="gap-ate-mes" style="min-width:140px">
+          <select id="gap-ate-q"><option value="2">2ª quinzena</option><option value="1">1ª quinzena</option></select>
+        </div>
+      </label>
+      <label>Tipo<select id="gap-tipo"><option value="">Todos</option></select></label>
+      <button id="gap-analisar" class="btn primary">Analisar lacunas</button>
+    </div>
+    <div id="gap-resultado"></div>
+
+    <h3>Últimas importações FT</h3>
+    <div class="tabela-wrap"><table id="hist-tabela"></table></div>
+  </section>
+
+  <!-- INVENTÁRIO -->
+  <section id="inventario" class="panel">
+    <h2>Inventário</h2>
+    <div class="filtros">
+      <label>Período<select id="inv-periodo"><option value="">Todos os períodos</option></select></label>
+      <label>Tipo<select id="inv-tipo"><option value="">Todos</option></select></label>
+      <label>Unidade<select id="inv-unidade"><option value="">Todas</option></select></label>
+      <label>Busca (placa / chassi / modelo)<input id="inv-busca" type="text" placeholder="ex.: ABC1D23 ou VOLVO"></label>
+      <button id="inv-buscar" class="btn primary">Filtrar</button>
+      <button id="inv-export" class="btn">⤓ Exportar Excel</button>
+    </div>
+    <div id="inv-info" class="info"></div>
+    <div class="tabela-wrap"><table id="inv-tabela"></table></div>
+  </section>
+
+  <!-- COMPARAR -->
+  <section id="comparar" class="panel">
+    <h2>Comparar períodos</h2>
+    <div class="filtros">
+      <label>Tipo<select id="cmp-tipo"></select></label>
+      <label>Período A (antes)<select id="cmp-a"></select></label>
+      <label>Período B (depois)<select id="cmp-b"></select></label>
+      <button id="cmp-run" class="btn primary">Comparar</button>
+      <button id="cmp-export" class="btn" disabled>⤓ Exportar Excel</button>
+    </div>
+    <div id="cmp-cards" class="cards"></div>
+    <div id="cmp-resultado"></div>
+  </section>
+
+  <!-- CONTINUIDADE -->
+  <section id="continuidade" class="panel">
+    <h2>Continuidade das placas</h2>
+    <p class="hint">Cada coluna é uma vigência; cada linha é uma placa (ou chassi, quando não há placa).
+       A célula é marcada quando o ativo esteve presente naquela vigência. Lacunas no meio (saiu e voltou)
+       e ausência na vigência mais recente ficam destacadas. Placas convertidas para Mercosul continuam na mesma linha.</p>
+    <div class="filtros">
+      <label>Tipo<select id="cont-tipo"></select></label>
+      <label>De (período)<select id="cont-de"></select></label>
+      <label>Até (período)<select id="cont-ate"></select></label>
+      <label>Unidade<select id="cont-unidade"><option value="">Todas</option></select></label>
+      <label>Busca (placa / chassi / modelo)<input id="cont-busca" type="text" placeholder="ex.: RHQ ou VOLVO"></label>
+      <label>Ordenar<select id="cont-ordenar">
+        <option value="alteracoes">Alteradas primeiro</option>
+        <option value="placa">Por placa</option>
+      </select></label>
+      <label class="check"><input type="checkbox" id="cont-somente"> Só com alteração</label>
+      <button id="cont-buscar" class="btn primary">Aplicar</button>
+      <button id="cont-export" class="btn">⤓ Exportar Excel</button>
+    </div>
+    <div class="legenda">
+      <span><span class="cel-amostra presente"></span> presente</span>
+      <span><span class="cel-amostra ausente"></span> ausente</span>
+      <span><span class="cel-amostra lacuna"></span> sumiu e voltou</span>
+      <span><span class="cel-amostra saiu"></span> ausente no fim (saiu)</span>
+      <span><span class="cel-amostra cdd"></span> trocou de CDD</span>
+      <span class="legenda-sep">Sinalizações:
+        <span class="badge green">entrou</span>
+        <span class="badge red">saiu</span>
+        <span class="badge amber">intermitente</span>
+        <span class="badge blue">trocou CDD</span>
+        <span class="badge purple">Mercosul</span>
+        <span class="badge orange">trocou tipo</span>
+      </span>
+    </div>
+    <div id="cont-info" class="info"></div>
+    <div class="tabela-wrap matriz-wrap"><table id="cont-tabela" class="matriz"></table></div>
+  </section>
+
+  <!-- VERIFICAR BASE -->
+  <section id="verificar" class="panel">
+    <h2>Verificar base externa</h2>
+    <p class="hint">Cole uma lista de placas e/ou chassis (uma por linha) ou envie uma planilha. O programa confere se cada ativo
+       estava na sua base e em quais períodos. Chassi é correlacionado pelo <strong>final</strong> do número.
+       Fragmentos de placa também funcionam — ex.: <code>3D67</code> ou <code>ABC</code> retorna todas as placas que contenham esse trecho.</p>
+    <div class="verif-grid">
+      <div>
+        <textarea id="verif-texto" rows="10" placeholder="ABC1D23&#10;9BM951511SB442064&#10;XYZ4567"></textarea>
+      </div>
+      <div class="verif-side">
+        <label class="filebtn">
+          <input type="file" id="verif-file" accept=".xlsx,.xlsm">
+          <span>📄 Enviar planilha</span>
+        </label>
+        <button id="verif-run" class="btn primary">Verificar</button>
+        <button id="verif-export" class="btn">⤓ Exportar Excel</button>
+      </div>
+    </div>
+    <div class="filtros" style="margin-top:12px">
+      <label>Período de análise (de)
+        <select id="verif-de"><option value="">Do início</option></select>
+      </label>
+      <label>Até
+        <select id="verif-ate"><option value="">Mais recente</option></select>
+      </label>
+    </div>
+    <div id="verif-info" class="info"></div>
+    <div class="tabela-wrap"><table id="verif-tabela"></table></div>
+  </section>
+
+  <!-- RESUMO -->
+  <section id="resumo" class="panel">
+    <h2>Resumo do banco</h2>
+    <div class="filtros">
+      <label>Período<select id="res-periodo"><option value="">Todos os períodos</option></select></label>
+      <label>Unidade<select id="res-unidade"><option value="">Todas as unidades</option></select></label>
+      <label>Tipo<select id="res-tipo"><option value="">Todos os tipos</option></select></label>
+      <button id="res-limpar" class="btn">Limpar filtros</button>
+    </div>
+    <div id="resumo-tipos" class="cards"></div>
+
+    <div class="filtros" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+      <h3 style="margin:0;font-size:1rem;align-self:center">Análise de custos</h3>
+      <label>Agrupar por
+        <select id="res-dimensao">
+          <option value="locadora">Por locadora</option>
+          <option value="tipo">Por tipo de equipamento</option>
+          <option value="unidade">Por operação (CDD)</option>
+          <option value="locadora_tipo">Locadora × Tipo</option>
+          <option value="locadora_unidade">Locadora × Operação</option>
+          <option value="tipo_unidade">Tipo × Operação</option>
+        </select>
+      </label>
+    </div>
+    <div id="custo-cards" class="cards" style="margin-top:12px"></div>
+    <div class="tabela-wrap"><table id="custo-tabela"></table></div>
+  </section>
+</main>
+
+  <!-- AUDITORIA -->
+  <section id="auditoria" class="panel">
+    <h2>Auditoria de multas e locação</h2>
+    <div class="subtabs">
+      <button class="subtab active" data-sub="aud-multas">Multas</button>
+      <button class="subtab" data-sub="aud-locacao">Locação</button>
+    </div>
+
+    <!-- MULTAS -->
+    <div id="aud-multas" class="subpanel active">
+      <p class="hint">Importe a planilha de multas (<code>Placa 1 · Placa 2 · Chassi · Data da Infração</code>). O sistema verifica se a placa estava na frota na data da infração e em qual unidade. O checklist de saídas é carregado automaticamente do banco — importe na aba <strong>Importar</strong>.</p>
+      <div id="aud-saida-info" class="saida-info-bar"></div>
+      <div id="aud-unidocs-info" class="saida-info-bar"></div>
+      <div class="filtros">
+        <label class="filebtn" id="mul-arq-btn">
+          <input type="file" id="mul-arquivo" accept=".xlsx,.xlsm">
+          <span id="mul-arq-nome">📄 Planilha de multas</span>
+        </label>
+        <button id="mul-run" class="btn primary">Verificar</button>
+        <button id="mul-export" class="btn" disabled>⤓ Exportar Excel</button>
+        <a href="/api/templates/multa" class="btn" download>⤓ Planilha padrão</a>
+      </div>
+      <div id="mul-info" class="info"></div>
+      <div class="tabela-wrap"><table id="mul-tabela"></table></div>
+    </div>
+
+    <!-- LOCAÇÃO -->
+    <div id="aud-locacao" class="subpanel">
+      <p class="hint">Importe a planilha de cobrança de locação (<code>Placa 1 · Placa 2 · Chassi · Nº Serie · Data Inicial · Data Final</code>). O sistema verifica se o equipamento estava na frota no período cobrado.</p>
+      <div class="filtros">
+        <label class="filebtn" id="loc-arq-btn">
+          <input type="file" id="loc-arquivo" accept=".xlsx,.xlsm">
+          <span id="loc-arq-nome">📄 Planilha de locação</span>
+        </label>
+        <button id="loc-run" class="btn primary">Verificar</button>
+        <button id="loc-export" class="btn" disabled>⤓ Exportar Excel</button>
+        <a href="/api/templates/locacao" class="btn" download>⤓ Planilha padrão</a>
+      </div>
+      <div id="loc-info" class="info"></div>
+      <div class="tabela-wrap"><table id="loc-tabela"></table></div>
+    </div>
+  </section>
+
+<!-- modal detalhe -->
+  <!-- STRESS TEST -->
+  <section id="stress" class="panel">
+    <h2>Stress Test — Saídas por placa</h2>
+    <p class="hint">Cruza as placas importadas no mês com o checklist de saídas. Cada veículo deve ter ao menos uma saída no mês. Tipos analisados: <strong>Caminhão · Van · AS · Cavalo · Carreta</strong>.</p>
+    <div class="filtros">
+      <label>Mês de referência
+        <input type="month" id="st-mes" style="min-width:150px">
+      </label>
+      <div id="st-unidade-chips" class="chip-group"></div>
+      <button id="st-run" class="btn primary">Analisar</button>
+      <button id="st-export" class="btn">⤓ Exportar Excel</button>
+      <label class="check" style="margin-left:8px"><input type="checkbox" id="st-somente-problemas"> Só com problemas</label>
+    </div>
+    <div id="st-cards" class="cards" style="margin-top:12px"></div>
+    <div id="st-info" class="info" style="margin-top:8px"></div>
+    <div class="tabela-wrap"><table id="st-tabela"></table></div>
+  </section>
+
+  <!-- ===== TELEMETRIA ===== -->
+  <section id="telemetria" class="panel oculto">
+    <h2>Telemetria — Cruzamento de placas</h2>
+    <p class="hint">Cruza as placas do banco de dados (Caminhão · Van · AS · Cavalo) com os sistemas de telemetria Geotab e Trimble. Verifica presença e compatibilidade de unidade.</p>
+    <p class="hint">Para importar os arquivos Geotab e Trimble, acesse a <button class="link-btn" onclick="document.querySelector('[data-tab=importar]').click()">aba Importar</button>.</p>
+
+    <!-- Filtros e ação -->
+    <div class="filtros" style="margin-top:12px">
+      <button id="telem-run" class="btn primary">Cruzar agora</button>
+      <button id="telem-export" class="btn">⤓ Exportar Excel</button>
+      <label class="check"><input type="checkbox" id="telem-so-problemas"> Só com problemas</label>
+      <div id="telem-chip-status" class="chip-group" style="margin-left:8px"></div>
+    </div>
+
+    <!-- Cards de resumo -->
+    <div id="telem-cards" class="cards" style="margin-top:12px"></div>
+    <div id="telem-info" class="info" style="margin-top:8px"></div>
+
+    <!-- Tabela resumo por unidade -->
+    <div class="st-resumo-wrap" id="telem-resumo-wrap"></div>
+
+    <!-- Tabela de detalhe -->
+    <div class="tabela-wrap" style="margin-top:16px"><table id="telem-tabela"></table></div>
+  </section>
+
+<div id="modal" class="modal oculto">
+  <div class="modal-box">
+    <button id="modal-close" class="modal-close">×</button>
+    <h3 id="modal-titulo">Detalhe</h3>
+    <div id="modal-corpo"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast oculto"></div>
+
+<script src="./shim.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
