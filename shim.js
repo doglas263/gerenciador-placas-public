@@ -16,7 +16,7 @@
 
   // Carrega data.json usando o fetch ORIGINAL (antes de sobrescrevê-lo)
   const _origFetch = window.fetch.bind(window);
-  _origFetch("./data.json")
+  _origFetch(`./data.json?v=${Date.now()}`)
     .then((r) => r.json())
     .then((d) => {
       _DATA = d;
