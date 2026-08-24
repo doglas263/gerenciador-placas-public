@@ -1,18 +1,33 @@
 /**
  * shim.js — carregado ANTES de app.js.
- * Sobrescreve window.fetch para servir todas as chamadas /api/... a partir
- * do data.json exportado, sem precisar de um servidor Flask.
+ * Sobrescreve window.fetch SINCRONAMENTE para interceptar /api/... calls.
+ * As respostas ficam em fila até o data.json terminar de carregar.
  */
-(async function () {
+(function () {
   // ------------------------------------------------------------------ dados
-  let _DATA;
-  try {
-    _DATA = await fetch("./data.json").then((r) => r.json());
-  } catch (e) {
-    document.body.innerHTML = `<div style="padding:2rem;color:#f66">Erro ao carregar data.json: ${e}</div>`;
-    return;
+  let _DATA = null;
+  let _waiters = [];
+  let REGS = [];
+
+  function _dataReady() {
+    if (_DATA !== null) return Promise.resolve();
+    return new Promise((resolve) => _waiters.push(resolve));
   }
-  const REGS = _DATA.registros || [];
+
+  // Carrega data.json usando o fetch ORIGINAL (antes de sobrescrevê-lo)
+  const _origFetch = window.fetch.bind(window);
+  _origFetch("./data.json")
+    .then((r) => r.json())
+    .then((d) => {
+      _DATA = d;
+      REGS = _DATA.registros || [];
+      _waiters.forEach((resolve) => resolve());
+      _waiters = [];
+      _setupUI();
+    })
+    .catch((e) => {
+      document.body.innerHTML = `<div style="padding:2rem;color:#f66">Erro ao carregar data.json: ${e}</div>`;
+    });
 
   // ----------------------------------------------------------------- normalize (port do Python)
   const MESES = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
@@ -304,7 +319,6 @@
     const de = formData instanceof FormData ? (formData.get("de") || null) : null;
     const ate = formData instanceof FormData ? (formData.get("ate") || null) : null;
     const itens = texto.replace(/[;,]/g, "\n").split("\n").map((s) => s.trim()).filter(Boolean);
-    // Constrói índice
     const porPlaca = {}, porChass = {};
     REGS.forEach((r) => {
       if (r.placa_norm) { const k = chavePlaca(r.placa_norm); if (k) (porPlaca[k] = porPlaca[k] || []).push(r); }
@@ -411,10 +425,7 @@
   function apiStressTest(params) {
     const ano = +params.get("ano"), mes = +params.get("mes");
     if (!ano || !mes) return { erro: "Informe ano e mes." };
-    // Placas no período selecionado
     const doPeriodo = REGS.filter((r) => r.ano === ano && r.mes === mes);
-    const placasDoPeriodo = new Set(doPeriodo.map((r) => r.placa_norm).filter(Boolean));
-    // Para cada placa, verifica se aparece em todos os tipos nesse período
     const porPlaca = {};
     doPeriodo.forEach((r) => { if (!r.placa_norm) return; if (!porPlaca[r.placa_norm]) porPlaca[r.placa_norm] = []; porPlaca[r.placa_norm].push(r); });
     return Object.entries(porPlaca)
@@ -422,11 +433,14 @@
       .map(([placa, regs]) => ({ placa, tipos: regs.map((r) => ({ tipo: r.tipo, unidade: r.unidade, periodo: r.periodo, negocio: r.negocio })) }));
   }
 
-  // ---------------------------------------------------------- sobrescreve fetch
-  const _origFetch = window.fetch.bind(window);
+  // ---------------------------------------------------------- sobrescreve fetch SINCRONAMENTE
   window.fetch = async function (url, opts = {}) {
     const u = typeof url === "string" ? url : url.toString();
     if (!u.startsWith("/api/")) return _origFetch(url, opts);
+
+    // Aguarda o data.json carregar antes de responder qualquer chamada /api/
+    await _dataReady();
+
     const urlObj = new URL(u, location.origin);
     const p = urlObj.pathname, params = urlObj.searchParams;
     const method = (opts.method || "GET").toUpperCase();
@@ -454,7 +468,6 @@
         return fakeResp(apiComparar(body));
       }
       if (p === "/api/verificar" && method === "POST") return fakeResp(apiVerificar(opts.body || new FormData()));
-      // Endpoints de exportação/importação — não disponíveis na versão pública
       if (p.startsWith("/api/exportar/") || p.startsWith("/api/download/") || p.startsWith("/api/importar") || p.startsWith("/api/reiniciar") || p.startsWith("/api/publicar")) {
         return fakeResp({ erro: "Não disponível na versão pública." }, 403);
       }
@@ -464,36 +477,38 @@
     }
   };
 
-  // --------------------------------------------------------- UI: oculta elementos de importação
-  document.addEventListener("DOMContentLoaded", () => {
-    // Oculta aba Importar e Auditoria
-    ["importar", "auditoria"].forEach((tab) => {
-      const btn = document.querySelector(`[data-tab="${tab}"]`);
-      if (btn) btn.style.display = "none";
-    });
-    // Oculta botão Reiniciar
-    const btnR = document.getElementById("btn-reiniciar");
-    if (btnR) btnR.parentElement.style.display = "none";
-    // Ativa aba Inventário como primeira
-    const primBtn = document.querySelector('[data-tab="inventario"]');
-    if (primBtn) {
-      document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
-      document.querySelectorAll(".panel").forEach((s) => s.classList.remove("active"));
-      primBtn.classList.add("active");
-      document.getElementById("inventario")?.classList.add("active");
+  // --------------------------------------------------------- UI: executada após data.json carregar
+  function _setupUI() {
+    function apply() {
+      ["importar", "auditoria"].forEach((tab) => {
+        const btn = document.querySelector(`[data-tab="${tab}"]`);
+        if (btn) btn.style.display = "none";
+      });
+      const btnR = document.getElementById("btn-reiniciar");
+      if (btnR) btnR.parentElement.style.display = "none";
+      const primBtn = document.querySelector('[data-tab="inventario"]');
+      if (primBtn) {
+        document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach((s) => s.classList.remove("active"));
+        primBtn.classList.add("active");
+        document.getElementById("inventario")?.classList.add("active");
+      }
+      document.querySelectorAll('button[id$="-dl-btn"], button[id^="exportar"], .btn-export, [id*="export"]').forEach((b) => {
+        if (b.textContent?.includes("Baixar") || b.textContent?.includes("Exportar") || b.textContent?.includes("Excel")) b.style.display = "none";
+      });
+      const ts = _DATA.exported_at ? new Date(_DATA.exported_at).toLocaleString("pt-BR") : "";
+      if (ts) {
+        const badge = document.createElement("span");
+        badge.className = "hint";
+        badge.style.cssText = "font-size:11px;margin-left:14px;opacity:.7;";
+        badge.textContent = `Dados exportados em ${ts}`;
+        document.querySelector(".brand")?.appendChild(badge);
+      }
     }
-    // Oculta botões de exportar Excel e download nas abas visíveis
-    document.querySelectorAll('button[id$="-dl-btn"], button[id^="exportar"], .btn-export, [id*="export"]').forEach((b) => {
-      if (b.textContent?.includes("Baixar") || b.textContent?.includes("Exportar") || b.textContent?.includes("Excel")) b.style.display = "none";
-    });
-    // Badge com data de exportação
-    const ts = _DATA.exported_at ? new Date(_DATA.exported_at).toLocaleString("pt-BR") : "";
-    if (ts) {
-      const badge = document.createElement("span");
-      badge.className = "hint";
-      badge.style.cssText = "font-size:11px;margin-left:14px;opacity:.7;";
-      badge.textContent = `Dados exportados em ${ts}`;
-      document.querySelector(".brand")?.appendChild(badge);
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", apply);
+    } else {
+      apply();
     }
-  });
+  }
 })();
