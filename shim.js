@@ -487,12 +487,7 @@
       const btnR = document.getElementById("btn-reiniciar");
       if (btnR) btnR.parentElement.style.display = "none";
       const primBtn = document.querySelector('[data-tab="inventario"]');
-      if (primBtn) {
-        document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
-        document.querySelectorAll(".panel").forEach((s) => s.classList.remove("active"));
-        primBtn.classList.add("active");
-        document.getElementById("inventario")?.classList.add("active");
-      }
+      if (primBtn) primBtn.click();
       document.querySelectorAll('button[id$="-dl-btn"], button[id^="exportar"], .btn-export, [id*="export"]').forEach((b) => {
         if (b.textContent?.includes("Baixar") || b.textContent?.includes("Exportar") || b.textContent?.includes("Excel")) b.style.display = "none";
       });
