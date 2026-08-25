@@ -425,12 +425,114 @@
   function apiStressTest(params) {
     const ano = +params.get("ano"), mes = +params.get("mes");
     if (!ano || !mes) return { erro: "Informe ano e mes." };
-    const doPeriodo = REGS.filter((r) => r.ano === ano && r.mes === mes);
-    const porPlaca = {};
-    doPeriodo.forEach((r) => { if (!r.placa_norm) return; if (!porPlaca[r.placa_norm]) porPlaca[r.placa_norm] = []; porPlaca[r.placa_norm].push(r); });
-    return Object.entries(porPlaca)
-      .filter(([, regs]) => regs.length > 1)
-      .map(([placa, regs]) => ({ placa, tipos: regs.map((r) => ({ tipo: r.tipo, unidade: r.unidade, periodo: r.periodo, negocio: r.negocio })) }));
+
+    const TIPOS_T2 = new Set(["Caminhão", "Van", "As"]);
+    const TIPOS_T1 = new Set(["Cavalo", "Carreta"]);
+    const TIPOS_STRESS = new Set([...TIPOS_T2, ...TIPOS_T1]);
+
+    // Deduplica por tipo+placa, mantém o período mais recente
+    const placasMap = {};
+    REGS.filter((r) => r.ano === ano && r.mes === mes && r.placa_norm && TIPOS_STRESS.has(r.tipo))
+      .forEach((r) => {
+        const ck = chavePlaca(normPlaca(r.placa_norm)) || normPlaca(r.placa_norm);
+        const key = `${r.tipo}|${ck}`;
+        if (!placasMap[key] || r.periodo > placasMap[key].periodo) placasMap[key] = r;
+      });
+
+    const saidasChecklist = _DATA.saidas_checklist || [];
+    const saidasCavalo = _DATA.saidas_t1_cavalo || [];
+    const saidasCarreta = _DATA.saidas_t1_carreta || [];
+    const t1TemDados = saidasCavalo.length > 0 || saidasCarreta.length > 0;
+
+    const mesPrefix = `${String(ano).padStart(4, "0")}-${String(mes).padStart(2, "0")}-`;
+
+    function buildMonthIdx(saidas) {
+      const idx = {};
+      saidas.filter((s) => s.data && s.data.startsWith(mesPrefix)).forEach((s) => {
+        const ck = chavePlaca(normPlaca(s.placa_norm)) || normPlaca(s.placa_norm);
+        if (!ck) return;
+        (idx[ck] = idx[ck] || []).push({ data: s.data, filial: s.filial || "" });
+      });
+      return idx;
+    }
+
+    function buildUltimaIdx(saidas) {
+      const idx = {};
+      saidas.forEach((s) => {
+        if (!s.data || !s.placa_norm) return;
+        const ck = chavePlaca(normPlaca(s.placa_norm)) || normPlaca(s.placa_norm);
+        if (ck && (!idx[ck] || s.data > idx[ck])) idx[ck] = s.data;
+      });
+      return idx;
+    }
+
+    const idxT2 = buildMonthIdx(saidasChecklist);
+    const idxCavalo = buildMonthIdx(saidasCavalo);
+    const idxCarreta = buildMonthIdx(saidasCarreta);
+    const ultimaT2 = buildUltimaIdx(saidasChecklist);
+    const ultimaCavalo = buildUltimaIdx(saidasCavalo);
+    const ultimaCarreta = buildUltimaIdx(saidasCarreta);
+
+    const hoje = new Date().toISOString().slice(0, 10);
+
+    function normFilial(s) {
+      return (s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]/g, "");
+    }
+    function fmtDate(d) {
+      if (!d) return null;
+      const [y, m, day] = d.split("-");
+      return `${day}/${m}/${y.slice(-2)}`;
+    }
+    function diasEntre(d1, d2) {
+      return Math.round((new Date(d2) - new Date(d1)) / 86400000);
+    }
+
+    const resultados = Object.values(placasMap).map((r) => {
+      const tipo = r.tipo;
+      const placa = r.placa_norm;
+      const unidade = r.unidade || "";
+      const ck = chavePlaca(normPlaca(placa)) || normPlaca(placa);
+      const usaT1 = TIPOS_T1.has(tipo);
+      const temChecklist = usaT1 ? t1TemDados : true;
+
+      let monthIdx, ultimaIdx;
+      if (tipo === "Cavalo") { monthIdx = idxCavalo; ultimaIdx = ultimaCavalo; }
+      else if (tipo === "Carreta") { monthIdx = idxCarreta; ultimaIdx = ultimaCarreta; }
+      else { monthIdx = idxT2; ultimaIdx = ultimaT2; }
+
+      const saidas = ck ? (monthIdx[ck] || []) : [];
+      const nSaidas = saidas.length;
+
+      const porFilial = {};
+      saidas.forEach((s) => {
+        const f = (s.filial || "").trim() || "Sem filial";
+        porFilial[f] = (porFilial[f] || 0) + 1;
+      });
+
+      const normUnid = normFilial(unidade);
+      const filialDivergente = !usaT1 && nSaidas > 0 && !!normUnid
+        && saidas.every((s) => normFilial(s.filial) !== normUnid);
+
+      const ultimaDt = ck ? (ultimaIdx[ck] || null) : null;
+      let diasSemSaida, ultimaSaida;
+      if (nSaidas === 0 && temChecklist) {
+        diasSemSaida = ultimaDt ? diasEntre(ultimaDt, hoje) : null;
+        ultimaSaida = fmtDate(ultimaDt);
+      } else {
+        diasSemSaida = 0;
+        ultimaSaida = fmtDate(ultimaDt);
+      }
+
+      return { tipo, placa, unidade, n_saidas: nSaidas, por_filial: porFilial, sem_saida: nSaidas === 0, filial_divergente: filialDivergente, tem_checklist: temChecklist, dias_sem_saida: diasSemSaida, ultima_saida: ultimaSaida };
+    });
+
+    resultados.sort((a, b) =>
+      a.tipo.localeCompare(b.tipo) ||
+      ((b.sem_saida && b.tem_checklist ? 2 : b.filial_divergente ? 1 : 0) - (a.sem_saida && a.tem_checklist ? 2 : a.filial_divergente ? 1 : 0)) ||
+      (a.placa || "").localeCompare(b.placa || "")
+    );
+
+    return resultados;
   }
 
   // ---------------------------------------------------------- sobrescreve fetch SINCRONAMENTE
