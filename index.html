@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gerenciador de Placas</title>
-<link rel="stylesheet" href="./styles.css?v=20260914170932">
+<link rel="stylesheet" href="./styles.css?v=20260917083904">
 </head>
 <body>
 <header class="topbar">
@@ -28,6 +28,7 @@
     <button class="tab" data-tab="auditoria">Auditoria</button>
     <button class="tab" data-tab="stress">Stress Test</button>
     <button class="tab" data-tab="telemetria">Telemetria</button>
+    <button class="tab" data-tab="km-mensal">KM Mensal</button>
   </nav>
 </header>
 
@@ -411,6 +412,70 @@
     <div class="tabela-wrap" style="margin-top:16px"><table id="telem-tabela"></table></div>
   </section>
 
+  <!-- ===== KM MENSAL ===== -->
+  <section id="km-mensal" class="panel oculto">
+    <h2>KM Mensal — quilometragem por placa e unidade</h2>
+    <p class="hint">Importa os relatórios mensais de utilização Geotab (XLSX) e Veltec (CSV) e calcula o KM percorrido por placa em cada mês, cruzando com a unidade oficial do FreighTech quando disponível. Unidades com mais de um nome cadastrado no FT (ex.: LATA/MALTE/CURITIBANA/PONTA GROSSA) são somadas em um único total.</p>
+    <p class="hint"><strong>KM médio (telemetria)</strong>: KM total ÷ nº de placas rastreadas (qualquer tipo). <strong>KM médio (match FT)</strong>: considera só placas de Cavalo/Caminhão/AS/Van com match confirmado entre telemetria e FT. <strong>KM médio por frota ativa</strong>: KM total ÷ média de placas ativas no FT (mesmos tipos) entre a 1ª e a 2ª quinzena do mês.</p>
+
+    <!-- Importação -->
+    <div class="imp-card" style="margin-top:12px">
+      <div class="imp-card-hdr">
+        <div class="imp-card-title">
+          <h3>Importar relatórios mensais <span class="badge amber">Telemetria</span></h3>
+          <span class="hint">Selecione os arquivos GEOTAB_*.xlsx e VELTEC_*.csv (pode importar vários meses de uma vez). Reimportar um mês já existente substitui os dados antigos daquela fonte.</span>
+        </div>
+      </div>
+      <div id="dropzone-km" class="dropzone">
+        <input type="file" id="km-file-input" multiple accept=".xlsx,.xlsm,.csv,.txt">
+        <div class="dz-inner">
+          <span class="dz-icon">⤓</span>
+          <p><strong>Solte os arquivos aqui</strong> ou clique para escolher</p>
+          <p class="hint">GEOTAB_*.xlsx e VELTEC_*.csv, um ou vários meses de uma vez.</p>
+        </div>
+      </div>
+      <div id="km-import-status"></div>
+      <div id="km-import-resultado"></div>
+      <div class="filtros" style="margin-top:8px">
+        <span id="km-info-geo" class="imp-status"></span>
+        <span id="km-info-vel" class="imp-status"></span>
+      </div>
+    </div>
+
+    <!-- Filtros e ação -->
+    <div class="filtros" style="margin-top:16px">
+      <label>Mês<select id="km-filtro-mes"><option value="">Todos</option></select></label>
+      <label>Unidade<select id="km-filtro-unidade"><option value="">Todas</option></select></label>
+      <label>Fonte<select id="km-filtro-fonte">
+        <option value="">Todas</option>
+        <option value="geotab">Geotab</option>
+        <option value="veltec">Veltec</option>
+      </select></label>
+      <button id="km-atualizar" class="btn primary">Atualizar</button>
+      <button id="km-export" class="btn">⤓ Exportar Excel</button>
+    </div>
+
+    <div id="km-info" class="info" style="margin-top:8px"></div>
+
+    <!-- Gráfico de totais mensais -->
+    <h3 style="margin-top:16px">KM total da frota por mês</h3>
+    <div id="km-chart" class="km-chart-wrap"></div>
+
+    <!-- Totais por unidade -->
+    <h3 style="margin-top:16px">Totais por unidade</h3>
+    <div class="tabela-wrap"><table id="km-tabela-totais"></table></div>
+
+    <!-- Ranking por placa -->
+    <h3 style="margin-top:16px">Ranking por placa — todo o período</h3>
+    <p class="hint">Soma o histórico completo de cada placa (ignora o filtro de mês) para identificar quais veículos rodam mais ou menos ao longo do tempo. Clique numa coluna para ordenar.</p>
+    <div class="tabela-wrap"><table id="km-tabela-ranking"></table></div>
+
+    <!-- Detalhe por placa -->
+    <h3 style="margin-top:16px">Detalhe por placa</h3>
+    <p class="hint">Clique numa coluna para ordenar.</p>
+    <div class="tabela-wrap"><table id="km-tabela-detalhe"></table></div>
+  </section>
+
 <div id="modal" class="modal oculto">
   <div class="modal-box">
     <button id="modal-close" class="modal-close">×</button>
@@ -421,7 +486,7 @@
 
 <div id="toast" class="toast oculto"></div>
 
-<script src="./shim.js?v=20260914170932"></script>
-<script src="./app.js?v=20260914170932"></script>
+<script src="./shim.js?v=20260917083904"></script>
+<script src="./app.js?v=20260917083904"></script>
 </body>
 </html>

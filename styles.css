@@ -106,6 +106,10 @@ select, input[type=text], input[type=month], textarea {
 select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 textarea { width: 100%; resize: vertical; }
 
+/* Gráfico KM Mensal */
+.km-chart-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg2); padding: 10px 4px 0; }
+.km-chart-wrap svg { display: block; }
+
 /* Tabelas */
 .tabela-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -122,6 +126,9 @@ td.center { text-align: center; vertical-align: middle; }
 #telem-tabela th:nth-child(4),
 #telem-tabela th:nth-child(5),
 #telem-tabela th:nth-child(7) { text-align: center; }
+#km-tabela-totais th:not(:first-child) { text-align: center; }
+#km-tabela-detalhe th:not(:first-child) { text-align: center; }
+#km-tabela-ranking th:not(:first-child) { text-align: center; }
 .st-resumo-filial th:not(:first-child) { text-align: center; }
 .st-resumo-filial td.num { text-align: center; }
 #st-tabela th:nth-child(1),

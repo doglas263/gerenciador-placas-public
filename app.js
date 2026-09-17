@@ -118,6 +118,7 @@ $$(".tab").forEach((b) => b.addEventListener("click", () => {
   if (b.dataset.tab === "auditoria")  carregarUltimaDataSaida();
   if (b.dataset.tab === "stress")     carregarStress();
   if (b.dataset.tab === "telemetria") carregarTelemInfo();
+  if (b.dataset.tab === "km-mensal") carregarKmMensal();
 }));
 
 // Sub-abas (Auditoria)
@@ -1798,4 +1799,349 @@ $("#telem-so-problemas").addEventListener("change", () => {
 $("#telem-export").addEventListener("click", () => {
   if (!telemDados.resultados) { toast("Faça o cruzamento primeiro.", "err"); return; }
   window.location.href = "/api/exportar/telemetria";
+});
+
+// ----------------------------------------------------------------------------
+// KM MENSAL
+// ----------------------------------------------------------------------------
+const MESES_ABREV = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+const mesLabel = (ano, mes) => `${MESES_ABREV[mes] || mes}/${ano}`;
+
+let kmMesesCarregados = false;
+let kmCarregado = false;
+
+const dzKm = $("#dropzone-km");
+const kmFileInput = $("#km-file-input");
+["dragenter", "dragover"].forEach((ev) => dzKm.addEventListener(ev, (e) => { e.preventDefault(); dzKm.classList.add("drag"); }));
+["dragleave", "drop"].forEach((ev) => dzKm.addEventListener(ev, (e) => { e.preventDefault(); dzKm.classList.remove("drag"); }));
+dzKm.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) enviarArquivosKm(e.dataTransfer.files); });
+kmFileInput.addEventListener("change", () => { if (kmFileInput.files.length) enviarArquivosKm(kmFileInput.files); });
+
+async function enviarArquivosKm(files) {
+  const fd = new FormData();
+  [...files].forEach((f) => fd.append("arquivos", f));
+  $("#km-import-status").innerHTML = `<p><span class="spinner"></span> Importando ${files.length} arquivo(s)…</p>`;
+  $("#km-import-resultado").innerHTML = "";
+  try {
+    const r = await fetch("/api/km-mensal/importar", { method: "POST", body: fd });
+    const data = await r.json();
+    renderKmImportResultado(data);
+    $("#km-import-status").innerHTML = "";
+    toast("Importação concluída.", "ok");
+    kmMesesCarregados = false;
+    carregarKmMensal();
+  } catch (e) {
+    $("#km-import-status").innerHTML = "";
+    toast("Erro na importação: " + e.message, "err");
+  }
+  kmFileInput.value = "";
+}
+
+function renderKmImportResultado(data) {
+  const cont = $("#km-import-resultado");
+  cont.innerHTML = "";
+  for (const res of data.resultados || []) {
+    const linha = el("div", { class: "imp-grupo" }, el("span", { class: "tipo" }, res.arquivo));
+    if (res.erro) {
+      linha.appendChild(el("span", { class: "badge red" }, "ERRO"));
+      linha.appendChild(el("span", {}, res.erro));
+    } else if (res.fonte === "Geotab") {
+      linha.appendChild(el("span", { class: "badge amber" }, "Geotab"));
+      linha.appendChild(el("span", {}, `${mesLabel(res.ano, res.mes)} — ${res.total} placas`));
+    } else {
+      linha.appendChild(el("span", { class: "badge amber" }, "Veltec"));
+      const resumoPeriodos = (res.periodos || []).map((p) => `${mesLabel(p.ano, p.mes)}: ${p.total} placas`).join(" · ");
+      linha.appendChild(el("span", {}, resumoPeriodos || `${res.total} placas`));
+    }
+    cont.appendChild(linha);
+  }
+}
+
+async function carregarKmInfo() {
+  try {
+    const d = await getJSON("/api/km-mensal/info");
+    const geoEl = $("#km-info-geo");
+    geoEl.className = d.geotab.total ? "imp-status ok" : "imp-status";
+    geoEl.textContent = d.geotab.total
+      ? `✓ Geotab: ${d.geotab.total.toLocaleString("pt-BR")} registros · ${d.geotab.meses} mês(es) · ${d.geotab.importado_em}`
+      : "Geotab: nenhum mês importado.";
+    const velEl = $("#km-info-vel");
+    velEl.className = d.veltec.total ? "imp-status ok" : "imp-status";
+    velEl.textContent = d.veltec.total
+      ? `✓ Veltec: ${d.veltec.total.toLocaleString("pt-BR")} registros · ${d.veltec.meses} mês(es) · ${d.veltec.importado_em}`
+      : "Veltec: nenhum mês importado.";
+  } catch (_) {}
+}
+
+async function carregarFiltrosKm() {
+  if (kmMesesCarregados) return;
+  kmMesesCarregados = true;
+  try {
+    const [meses, totaisTodos] = await Promise.all([
+      getJSON("/api/km-mensal/meses"),
+      getJSON("/api/km-mensal/totais"),
+    ]);
+    const selMes = $("#km-filtro-mes");
+    selMes.innerHTML = '<option value="">Todos</option>';
+    meses.forEach((m) => selMes.appendChild(el("option", { value: `${m.ano}-${m.mes}` }, mesLabel(m.ano, m.mes))));
+
+    // Unidades já vêm consolidadas do servidor (grupo canônico de CDD).
+    const unidades = new Set(totaisTodos.map((t) => t.unidade));
+    const selUnid = $("#km-filtro-unidade");
+    selUnid.innerHTML = '<option value="">Todas</option>';
+    [...unidades].sort((a, b) => a.localeCompare(b, "pt-BR"))
+      .forEach((u) => selUnid.appendChild(el("option", { value: u }, u)));
+  } catch (_) {}
+}
+
+function kmFiltros() {
+  const mesVal = $("#km-filtro-mes").value;
+  const params = new URLSearchParams();
+  if (mesVal) {
+    const [ano, mes] = mesVal.split("-");
+    params.set("ano", ano); params.set("mes", mes);
+  }
+  const unidade = $("#km-filtro-unidade").value;
+  if (unidade) params.set("unidade", unidade);
+  const fonte = $("#km-filtro-fonte").value;
+  if (fonte) params.set("fonte", fonte);
+  return params;
+}
+
+async function carregarKmMensal() {
+  await carregarKmInfo();
+  await carregarFiltrosKm();
+  await atualizarKmTabelas();
+  kmCarregado = true;
+}
+
+function kmFiltrosRanking() {
+  // Ranking por placa sempre olha o histórico completo — ignora o filtro de mês.
+  const params = new URLSearchParams();
+  const unidade = $("#km-filtro-unidade").value;
+  if (unidade) params.set("unidade", unidade);
+  const fonte = $("#km-filtro-fonte").value;
+  if (fonte) params.set("fonte", fonte);
+  return params;
+}
+
+async function atualizarKmTabelas() {
+  const params = kmFiltros();
+  $("#km-info").innerHTML = `<span class="spinner"></span> Carregando…`;
+  try {
+    const [totais, detalhe, ranking] = await Promise.all([
+      getJSON("/api/km-mensal/totais?" + params.toString()),
+      getJSON("/api/km-mensal/resumo?" + params.toString()),
+      getJSON("/api/km-mensal/ranking?" + kmFiltrosRanking().toString()),
+    ]);
+    renderKmChart(totais);
+    renderKmTotais(totais);
+    renderKmRanking(ranking);
+    renderKmDetalhe(detalhe);
+    const kmSoma = detalhe.reduce((s, r) => s + (r.km || 0), 0);
+    $("#km-info").textContent = `${detalhe.length} registro(s) de placa/mês · ${Math.round(kmSoma).toLocaleString("pt-BR")} km no total.`;
+  } catch (e) {
+    $("#km-info").textContent = "Erro: " + e.message;
+  }
+}
+
+// ── Tabelas ordenáveis (clique no cabeçalho) ────────────────────────────────
+const _kmSortState = {};
+
+function renderTabelaOrdenavel(id, hdrs, dados, sortKeys, rowBuilder) {
+  if (!_kmSortState[id]) _kmSortState[id] = { col: null, dir: "asc" };
+  const st = _kmSortState[id];
+
+  let visiveis = dados;
+  if (st.col !== null) {
+    const key = sortKeys[st.col];
+    visiveis = [...dados].sort((a, b) => {
+      const va = key(a), vb = key(b);
+      if (va < vb) return st.dir === "asc" ? -1 : 1;
+      if (va > vb) return st.dir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }
+
+  const linhas = visiveis.map(rowBuilder);
+  const t = tabela(hdrs, linhas);
+  t.id = id;
+  t.querySelectorAll("th").forEach((th, i) => {
+    th.classList.add("th-sort");
+    const icon = el("span", { class: st.col === i ? "sort-icon th-sorted" : "sort-icon" },
+      st.col === i ? (st.dir === "asc" ? " ▲" : " ▼") : " ⇅");
+    th.appendChild(icon);
+    th.addEventListener("click", () => {
+      if (st.col === i) st.dir = st.dir === "asc" ? "desc" : "asc";
+      else { st.col = i; st.dir = "asc"; }
+      renderTabelaOrdenavel(id, hdrs, dados, sortKeys, rowBuilder);
+    });
+  });
+  $("#" + id).replaceWith(t);
+}
+
+const SVGNS = "http://www.w3.org/2000/svg";
+function _svg(tag, attrs = {}) {
+  const n = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  return n;
+}
+
+function renderKmChart(totais) {
+  const wrap = $("#km-chart");
+  wrap.innerHTML = "";
+
+  // Soma o KM de todas as unidades por mês (respeita os filtros já aplicados).
+  const porMes = {};
+  totais.forEach((r) => {
+    const chave = `${r.ano}-${String(r.mes).padStart(2, "0")}`;
+    porMes[chave] = (porMes[chave] || 0) + (r.km_total || 0);
+  });
+  const dados = Object.keys(porMes).sort().map((chave) => {
+    const [ano, mes] = chave.split("-").map(Number);
+    return { ano, mes, km: porMes[chave] };
+  });
+
+  if (!dados.length) {
+    wrap.appendChild(el("div", { class: "vazio", style: "padding:24px" }, "Sem dados para exibir."));
+    return;
+  }
+
+  const H = 260, padL = 64, padR = 16, padT = 20, padB = 34;
+  const W = Math.max(560, dados.length * 84);
+  const areaW = W - padL - padR, areaH = H - padT - padB;
+  const maxKm = Math.max(...dados.map((d) => d.km), 1);
+  const gap = areaW / dados.length;
+  const barW = Math.min(46, gap * 0.55);
+
+  const svg = _svg("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H });
+
+  const NGRID = 4;
+  for (let i = 0; i <= NGRID; i++) {
+    const y = padT + areaH * (1 - i / NGRID);
+    svg.appendChild(_svg("line", {
+      x1: padL, x2: W - padR, y1: y, y2: y,
+      style: "stroke:var(--line);stroke-width:1",
+    }));
+    const txt = _svg("text", {
+      x: padL - 8, y: y + 4, "text-anchor": "end",
+      style: "fill:var(--txt-dim);font-size:11px",
+    });
+    txt.textContent = Math.round(maxKm * i / NGRID).toLocaleString("pt-BR");
+    svg.appendChild(txt);
+  }
+
+  dados.forEach((d, i) => {
+    const x = padL + i * gap + (gap - barW) / 2;
+    const h = areaH * (d.km / maxKm);
+    const y = padT + areaH - h;
+
+    const rect = _svg("rect", { x, y, width: barW, height: Math.max(h, 1), rx: 3, style: "fill:var(--accent)" });
+    rect.appendChild(_svg("title")).textContent = `${mesLabel(d.ano, d.mes)}: ${Math.round(d.km).toLocaleString("pt-BR")} km`;
+    svg.appendChild(rect);
+
+    const valTxt = _svg("text", {
+      x: x + barW / 2, y: y - 6, "text-anchor": "middle",
+      style: "fill:var(--txt);font-size:11px",
+    });
+    valTxt.textContent = fmtNum(Math.round(d.km / 1000)) + "k";
+    svg.appendChild(valTxt);
+
+    const lbl = _svg("text", {
+      x: x + barW / 2, y: padT + areaH + 18, "text-anchor": "middle",
+      style: "fill:var(--txt-dim);font-size:11px",
+    });
+    lbl.textContent = mesLabel(d.ano, d.mes);
+    svg.appendChild(lbl);
+  });
+
+  wrap.appendChild(svg);
+}
+
+const _KM_TOTAIS_HDRS = [
+  "Unidade", "Mês", "Veículos c/ telemetria", "KM total", "KM médio (telemetria)",
+  "Veículos c/ match FT", "KM médio (match FT)",
+  "Frotas ativas (méd. quinz.)", "KM médio por frota ativa",
+];
+const _KM_TOTAIS_SORT = [
+  (r) => r.unidade || "",
+  (r) => r.ano * 100 + r.mes,
+  (r) => r.veiculos,
+  (r) => r.km_total,
+  (r) => r.km_medio,
+  (r) => r.veiculos_match,
+  (r) => r.km_medio_match,
+  (r) => r.frotas_ativas_media,
+  (r) => r.km_medio_frota_ativa,
+];
+function renderKmTotais(totais) {
+  renderTabelaOrdenavel("km-tabela-totais", _KM_TOTAIS_HDRS, totais, _KM_TOTAIS_SORT, (r) => [
+    el("td", {}, r.unidade),
+    el("td", { class: "center" }, mesLabel(r.ano, r.mes)),
+    el("td", { class: "center" }, r.veiculos),
+    el("td", { class: "center" }, fmtNum(r.km_total)),
+    el("td", { class: "center" }, fmtNum(r.km_medio)),
+    el("td", { class: "center" }, r.veiculos_match),
+    el("td", { class: "center" }, r.veiculos_match ? fmtNum(r.km_medio_match) : "—"),
+    el("td", { class: "center" }, fmtNum(r.frotas_ativas_media)),
+    el("td", { class: "center" }, r.frotas_ativas_media ? fmtNum(r.km_medio_frota_ativa) : "—"),
+  ]);
+}
+
+const _KM_DETALHE_HDRS = ["Placa", "Unidade", "No FT", "Tipo", "Fonte", "Mês", "KM"];
+const _KM_DETALHE_SORT = [
+  (r) => r.placa || "",
+  (r) => r.unidade || "",
+  (r) => (r.no_ft ? 1 : 0),
+  (r) => r.tipo || "",
+  (r) => r.fonte || "",
+  (r) => r.ano * 100 + r.mes,
+  (r) => r.km || 0,
+];
+function renderKmDetalhe(detalhe) {
+  renderTabelaOrdenavel("km-tabela-detalhe", _KM_DETALHE_HDRS, detalhe, _KM_DETALHE_SORT, (r) => [
+    el("td", {}, placaBadge(r.placa, null)),
+    el("td", {}, r.unidade || "—"),
+    el("td", { class: "center" }, r.no_ft
+      ? el("span", { class: "badge green" }, "Sim")
+      : el("span", { class: "badge gray" }, "Não")),
+    el("td", { class: "center" }, r.tipo || "—"),
+    el("td", { class: "center" }, r.fonte === "geotab" ? "Geotab" : "Veltec"),
+    el("td", { class: "center" }, mesLabel(r.ano, r.mes)),
+    el("td", { class: "center" }, fmtNum(r.km)),
+  ]);
+}
+
+const _KM_RANKING_HDRS = ["Placa", "Unidade", "Tipo", "Fonte", "Meses", "KM total", "KM médio/mês", "KM mín (mês)", "KM máx (mês)"];
+const _KM_RANKING_SORT = [
+  (r) => r.placa || "",
+  (r) => r.unidade || "",
+  (r) => r.tipo || "",
+  (r) => r.fonte || "",
+  (r) => r.meses,
+  (r) => r.km_total,
+  (r) => r.km_medio_mensal,
+  (r) => r.km_min,
+  (r) => r.km_max,
+];
+function renderKmRanking(ranking) {
+  renderTabelaOrdenavel("km-tabela-ranking", _KM_RANKING_HDRS, ranking, _KM_RANKING_SORT, (r) => [
+    el("td", {}, placaBadge(r.placa, null)),
+    el("td", {}, r.unidade || "—"),
+    el("td", { class: "center" }, r.tipo || "—"),
+    el("td", { class: "center" }, r.fonte === "geotab" ? "Geotab" : "Veltec"),
+    el("td", { class: "center" }, r.meses),
+    el("td", { class: "center" }, fmtNum(r.km_total)),
+    el("td", { class: "center" }, fmtNum(r.km_medio_mensal)),
+    el("td", { class: "center" }, fmtNum(r.km_min)),
+    el("td", { class: "center" }, fmtNum(r.km_max)),
+  ]);
+}
+
+$("#km-atualizar").addEventListener("click", atualizarKmTabelas);
+$("#km-filtro-mes").addEventListener("change", atualizarKmTabelas);
+$("#km-filtro-unidade").addEventListener("change", atualizarKmTabelas);
+$("#km-filtro-fonte").addEventListener("change", atualizarKmTabelas);
+$("#km-export").addEventListener("click", () => {
+  window.location.href = "/api/exportar/km-mensal";
 });
