@@ -119,6 +119,7 @@ $$(".tab").forEach((b) => b.addEventListener("click", () => {
   if (b.dataset.tab === "stress")     carregarStress();
   if (b.dataset.tab === "telemetria") carregarTelemInfo();
   if (b.dataset.tab === "km-mensal") carregarKmMensal();
+  if (b.dataset.tab === "combustivel") carregarCombustivel();
 }));
 
 // Sub-abas (Auditoria)
@@ -1525,6 +1526,37 @@ async function carregarStatusImportacoes() {
       }
     }
   } catch (_) {}
+
+  // KM Geotab + KM Veltec
+  try {
+    const d = await getJSON("/api/km-mensal/info");
+    const kmGeoEl = $("#kmgeo-status");
+    if (kmGeoEl) {
+      kmGeoEl.className = d.geotab.total ? "imp-status ok" : "imp-status";
+      kmGeoEl.textContent = d.geotab.total
+        ? `✓ ${d.geotab.total.toLocaleString("pt-BR")} registros · ${d.geotab.meses} mês(es) · ${d.geotab.importado_em}`
+        : "Nenhum mês importado.";
+    }
+    const kmVelEl = $("#kmvel-status");
+    if (kmVelEl) {
+      kmVelEl.className = d.veltec.total ? "imp-status ok" : "imp-status";
+      kmVelEl.textContent = d.veltec.total
+        ? `✓ ${d.veltec.total.toLocaleString("pt-BR")} registros · ${d.veltec.meses} mês(es) · ${d.veltec.importado_em}`
+        : "Nenhum mês importado.";
+    }
+  } catch (_) {}
+
+  // Combustível
+  try {
+    const d = await getJSON("/api/combustivel/info");
+    const combEl = $("#comb-status");
+    if (combEl) {
+      combEl.className = d.total ? "imp-status ok" : "imp-status";
+      combEl.textContent = d.total
+        ? `✓ ${d.total.toLocaleString("pt-BR")} abastecimentos · ${d.meses} mês(es) · ${d.importado_em}`
+        : "Nenhum mês importado.";
+    }
+  } catch (_) {}
 }
 
 // --- Importação Geotab ---
@@ -1810,68 +1842,99 @@ const mesLabel = (ano, mes) => `${MESES_ABREV[mes] || mes}/${ano}`;
 let kmMesesCarregados = false;
 let kmCarregado = false;
 
-const dzKm = $("#dropzone-km");
-const kmFileInput = $("#km-file-input");
-["dragenter", "dragover"].forEach((ev) => dzKm.addEventListener(ev, (e) => { e.preventDefault(); dzKm.classList.add("drag"); }));
-["dragleave", "drop"].forEach((ev) => dzKm.addEventListener(ev, (e) => { e.preventDefault(); dzKm.classList.remove("drag"); }));
-dzKm.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) enviarArquivosKm(e.dataTransfer.files); });
-kmFileInput.addEventListener("change", () => { if (kmFileInput.files.length) enviarArquivosKm(kmFileInput.files); });
-
-async function enviarArquivosKm(files) {
+// Importação (cartões na aba "Importar" — mesmo padrão do Geotab/Trimble de Telemetria)
+async function importarKmArquivos(fileInput, statusEl, nomeSpan, nomeDefault) {
+  if (!fileInput.files.length) { toast("Selecione ao menos um arquivo.", "err"); return; }
   const fd = new FormData();
-  [...files].forEach((f) => fd.append("arquivos", f));
-  $("#km-import-status").innerHTML = `<p><span class="spinner"></span> Importando ${files.length} arquivo(s)…</p>`;
-  $("#km-import-resultado").innerHTML = "";
+  [...fileInput.files].forEach((f) => fd.append("arquivos", f));
+  statusEl.className = "imp-status";
+  statusEl.innerHTML = `<span class="spinner"></span> Importando…`;
   try {
     const r = await fetch("/api/km-mensal/importar", { method: "POST", body: fd });
-    const data = await r.json();
-    renderKmImportResultado(data);
-    $("#km-import-status").innerHTML = "";
-    toast("Importação concluída.", "ok");
-    kmMesesCarregados = false;
-    carregarKmMensal();
-  } catch (e) {
-    $("#km-import-status").innerHTML = "";
-    toast("Erro na importação: " + e.message, "err");
-  }
-  kmFileInput.value = "";
-}
-
-function renderKmImportResultado(data) {
-  const cont = $("#km-import-resultado");
-  cont.innerHTML = "";
-  for (const res of data.resultados || []) {
-    const linha = el("div", { class: "imp-grupo" }, el("span", { class: "tipo" }, res.arquivo));
-    if (res.erro) {
-      linha.appendChild(el("span", { class: "badge red" }, "ERRO"));
-      linha.appendChild(el("span", {}, res.erro));
-    } else if (res.fonte === "Geotab") {
-      linha.appendChild(el("span", { class: "badge amber" }, "Geotab"));
-      linha.appendChild(el("span", {}, `${mesLabel(res.ano, res.mes)} — ${res.total} placas`));
+    const d = await r.json();
+    const resultados = d.resultados || [];
+    const erros = resultados.filter((x) => x.erro);
+    const ok = resultados.filter((x) => !x.erro);
+    if (ok.length === 0 && erros.length > 0) {
+      statusEl.className = "imp-status err";
+      statusEl.textContent = "Erro: " + erros.map((e) => e.erro).join(" · ");
     } else {
-      linha.appendChild(el("span", { class: "badge amber" }, "Veltec"));
-      const resumoPeriodos = (res.periodos || []).map((p) => `${mesLabel(p.ano, p.mes)}: ${p.total} placas`).join(" · ");
-      linha.appendChild(el("span", {}, resumoPeriodos || `${res.total} placas`));
+      const totalRegs = ok.reduce((s, x) => s + (x.total || 0), 0);
+      statusEl.className = "imp-status ok";
+      statusEl.textContent = `✓ ${ok.length} arquivo(s) importado(s) — ${totalRegs.toLocaleString("pt-BR")} registro(s)`
+        + (erros.length ? ` · ${erros.length} com erro` : "");
+      toast("Importação concluída.", "ok");
     }
-    cont.appendChild(linha);
+    kmMesesCarregados = false; // força recarregar filtros/dados na próxima vez que abrir a aba KM Mensal
+  } catch (e) {
+    statusEl.className = "imp-status err";
+    statusEl.textContent = "Erro: " + e.message;
   }
+  fileInput.value = "";
+  nomeSpan.textContent = nomeDefault;
 }
 
-async function carregarKmInfo() {
+const kmGeoFile = $("#kmgeo-file");
+const kmGeoNome = $("#kmgeo-file-nome");
+const KMGEO_NOME_PADRAO = "📡 Selecionar arquivo(s) Geotab";
+kmGeoFile.addEventListener("change", () => {
+  kmGeoNome.textContent = kmGeoFile.files.length ? `📡 ${kmGeoFile.files.length} arquivo(s) selecionado(s)` : KMGEO_NOME_PADRAO;
+});
+$("#kmgeo-import-btn").addEventListener("click", () =>
+  importarKmArquivos(kmGeoFile, $("#kmgeo-status"), kmGeoNome, KMGEO_NOME_PADRAO));
+
+const kmVelFile = $("#kmvel-file");
+const kmVelNome = $("#kmvel-file-nome");
+const KMVEL_NOME_PADRAO = "📡 Selecionar arquivo(s) Veltec";
+kmVelFile.addEventListener("change", () => {
+  kmVelNome.textContent = kmVelFile.files.length ? `📡 ${kmVelFile.files.length} arquivo(s) selecionado(s)` : KMVEL_NOME_PADRAO;
+});
+$("#kmvel-import-btn").addEventListener("click", () =>
+  importarKmArquivos(kmVelFile, $("#kmvel-status"), kmVelNome, KMVEL_NOME_PADRAO));
+
+// Importação — Combustível
+async function importarCombustivelArquivos(fileInput, statusEl, nomeSpan, nomeDefault) {
+  if (!fileInput.files.length) { toast("Selecione ao menos um arquivo.", "err"); return; }
+  const fd = new FormData();
+  [...fileInput.files].forEach((f) => fd.append("arquivos", f));
+  statusEl.className = "imp-status";
+  statusEl.innerHTML = `<span class="spinner"></span> Importando…`;
   try {
-    const d = await getJSON("/api/km-mensal/info");
-    const geoEl = $("#km-info-geo");
-    geoEl.className = d.geotab.total ? "imp-status ok" : "imp-status";
-    geoEl.textContent = d.geotab.total
-      ? `✓ Geotab: ${d.geotab.total.toLocaleString("pt-BR")} registros · ${d.geotab.meses} mês(es) · ${d.geotab.importado_em}`
-      : "Geotab: nenhum mês importado.";
-    const velEl = $("#km-info-vel");
-    velEl.className = d.veltec.total ? "imp-status ok" : "imp-status";
-    velEl.textContent = d.veltec.total
-      ? `✓ Veltec: ${d.veltec.total.toLocaleString("pt-BR")} registros · ${d.veltec.meses} mês(es) · ${d.veltec.importado_em}`
-      : "Veltec: nenhum mês importado.";
-  } catch (_) {}
+    const r = await fetch("/api/combustivel/importar", { method: "POST", body: fd });
+    const d = await r.json();
+    const resultados = d.resultados || [];
+    const erros = resultados.filter((x) => x.erro);
+    const ok = resultados.filter((x) => !x.erro);
+    if (ok.length === 0 && erros.length > 0) {
+      statusEl.className = "imp-status err";
+      statusEl.textContent = "Erro: " + erros.map((e) => e.erro).join(" · ");
+    } else {
+      const novos = ok.reduce((s, x) => s + (x.novos || 0), 0);
+      const atualizados = ok.reduce((s, x) => s + (x.atualizados || 0), 0);
+      const diesel = ok.reduce((s, x) => s + (x.diesel || 0), 0);
+      statusEl.className = "imp-status ok";
+      statusEl.textContent = `✓ ${ok.length} arquivo(s) — ${diesel.toLocaleString("pt-BR")} linhas de diesel, `
+        + `${novos.toLocaleString("pt-BR")} novo(s), ${atualizados.toLocaleString("pt-BR")} atualizado(s)`
+        + (erros.length ? ` · ${erros.length} com erro` : "");
+      toast("Importação concluída.", "ok");
+    }
+    combMesesCarregados = false; // força recarregar filtros/dados na próxima vez que abrir a aba Combustível
+  } catch (e) {
+    statusEl.className = "imp-status err";
+    statusEl.textContent = "Erro: " + e.message;
+  }
+  fileInput.value = "";
+  nomeSpan.textContent = nomeDefault;
 }
+
+const combFile = $("#comb-file");
+const combNome = $("#comb-file-nome");
+const COMB_NOME_PADRAO = "⛽ Selecionar arquivo(s) de abastecimento";
+combFile.addEventListener("change", () => {
+  combNome.textContent = combFile.files.length ? `⛽ ${combFile.files.length} arquivo(s) selecionado(s)` : COMB_NOME_PADRAO;
+});
+$("#comb-import-btn").addEventListener("click", () =>
+  importarCombustivelArquivos(combFile, $("#comb-status"), combNome, COMB_NOME_PADRAO));
 
 async function carregarFiltrosKm() {
   if (kmMesesCarregados) return;
@@ -1909,11 +1972,89 @@ function kmFiltros() {
 }
 
 async function carregarKmMensal() {
-  await carregarKmInfo();
   await carregarFiltrosKm();
   await atualizarKmTabelas();
   kmCarregado = true;
 }
+
+// ── Busca de KM por placa/dia ────────────────────────────────────────────
+function fmtDataBR(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function renderKmBuscaLinha(res) {
+  const linhas = [
+    ["KM inicial", res.km_inicial == null ? "—" : fmtNum(res.km_inicial)],
+    ["KM final", res.km_final == null ? "—" : fmtNum(res.km_final)],
+    ["KM rodado no dia", fmtNum(res.km_rodado)],
+    ["Média (inicial/final)", res.km_medio == null ? "—" : fmtNum(res.km_medio)],
+    ["Unidade na telemetria", res.unidade_telemetria || "—"],
+    ["Unidade no FT", (res.unidade_ft || "—") + (res.unidade_ft && !res.unidade_ft_exata ? " (histórico)" : "")],
+    ["Tipo no FT", res.tipo_ft || "—"],
+  ];
+  const box = el("div", { class: "card km-busca-card" });
+  box.appendChild(el("div", { class: "km-busca-hdr" },
+    el("strong", {}, res.placa),
+    el("span", { class: "badge amber" }, res.fonte === "geotab" ? "Geotab" : "Veltec"),
+    el("span", { class: "hint" }, fmtDataBR(res.data)),
+  ));
+  const tbl = el("table", { class: "km-busca-tabela" });
+  const tbody = el("tbody");
+  linhas.forEach(([label, valor]) => {
+    tbody.appendChild(el("tr", {}, el("td", {}, label), el("td", {}, valor)));
+  });
+  tbl.appendChild(tbody);
+  box.appendChild(tbl);
+  return box;
+}
+
+async function buscarKmDia() {
+  const placa = $("#km-busca-placa").value.trim().toUpperCase();
+  const data = $("#km-busca-data").value;
+  const cont = $("#km-busca-resultado");
+  if (!placa || !data) { toast("Informe placa e data.", "err"); return; }
+
+  cont.innerHTML = `<span class="spinner"></span> Buscando…`;
+  try {
+    const r = await fetch(`/api/km-mensal/buscar-dia?placa=${encodeURIComponent(placa)}&data=${data}`);
+    const d = await r.json();
+    if (d.erro) { cont.innerHTML = `<div class="inline-err" style="display:block">${d.erro}</div>`; return; }
+
+    cont.innerHTML = "";
+
+    if (!d.exato) {
+      cont.appendChild(el("div", { class: "info" }, `Sem dado exato para ${placa} em ${fmtDataBR(data)}.`));
+      if (d.data_anterior || d.data_posterior) {
+        const linha = el("div", { class: "filtros", style: "margin-top:6px;margin-bottom:0" });
+        linha.appendChild(el("span", { class: "hint" }, "Usar a data mais próxima:"));
+        if (d.data_anterior) {
+          const btn = el("button", { class: "btn" }, `⟵ ${fmtDataBR(d.data_anterior)} (anterior)`);
+          btn.addEventListener("click", () => { $("#km-busca-data").value = d.data_anterior; buscarKmDia(); });
+          linha.appendChild(btn);
+        }
+        if (d.data_posterior) {
+          const btn2 = el("button", { class: "btn" }, `${fmtDataBR(d.data_posterior)} (posterior) ⟶`);
+          btn2.addEventListener("click", () => { $("#km-busca-data").value = d.data_posterior; buscarKmDia(); });
+          linha.appendChild(btn2);
+        }
+        cont.appendChild(linha);
+      } else {
+        cont.appendChild(el("div", { class: "hint" }, "Essa placa não tem nenhum dia de telemetria importado."));
+      }
+      return;
+    }
+
+    d.resultados.forEach((res) => cont.appendChild(renderKmBuscaLinha(res)));
+  } catch (e) {
+    cont.innerHTML = `<div class="inline-err" style="display:block">Erro: ${e.message}</div>`;
+  }
+}
+
+$("#km-busca-btn").addEventListener("click", buscarKmDia);
+$("#km-busca-placa").addEventListener("keydown", (e) => { if (e.key === "Enter") buscarKmDia(); });
+$("#km-busca-data").addEventListener("keydown", (e) => { if (e.key === "Enter") buscarKmDia(); });
 
 function kmFiltrosRanking() {
   // Ranking por placa sempre olha o histórico completo — ignora o filtro de mês.
@@ -2088,6 +2229,17 @@ function renderKmTotais(totais) {
   ]);
 }
 
+// Tipo/unidade podem vir do cadastro do mês exato ou, quando a placa não
+// está no FT naquele mês, do cadastro mais próximo no tempo (tipo_estimado).
+// Mostra um "~" discreto nesse segundo caso, em vez de deixar em branco.
+function tipoCell(r) {
+  if (!r.tipo) return "—";
+  return r.tipo_estimado
+    ? el("span", { title: "Inferido do cadastro FT mais próximo no tempo (placa sem registro no mês exato)" },
+        "~ " + r.tipo)
+    : r.tipo;
+}
+
 const _KM_DETALHE_HDRS = ["Placa", "Unidade", "No FT", "Tipo", "Fonte", "Mês", "KM"];
 const _KM_DETALHE_SORT = [
   (r) => r.placa || "",
@@ -2105,7 +2257,7 @@ function renderKmDetalhe(detalhe) {
     el("td", { class: "center" }, r.no_ft
       ? el("span", { class: "badge green" }, "Sim")
       : el("span", { class: "badge gray" }, "Não")),
-    el("td", { class: "center" }, r.tipo || "—"),
+    el("td", { class: "center" }, tipoCell(r)),
     el("td", { class: "center" }, r.fonte === "geotab" ? "Geotab" : "Veltec"),
     el("td", { class: "center" }, mesLabel(r.ano, r.mes)),
     el("td", { class: "center" }, fmtNum(r.km)),
@@ -2128,7 +2280,7 @@ function renderKmRanking(ranking) {
   renderTabelaOrdenavel("km-tabela-ranking", _KM_RANKING_HDRS, ranking, _KM_RANKING_SORT, (r) => [
     el("td", {}, placaBadge(r.placa, null)),
     el("td", {}, r.unidade || "—"),
-    el("td", { class: "center" }, r.tipo || "—"),
+    el("td", { class: "center" }, tipoCell(r)),
     el("td", { class: "center" }, r.fonte === "geotab" ? "Geotab" : "Veltec"),
     el("td", { class: "center" }, r.meses),
     el("td", { class: "center" }, fmtNum(r.km_total)),
@@ -2144,4 +2296,366 @@ $("#km-filtro-unidade").addEventListener("change", atualizarKmTabelas);
 $("#km-filtro-fonte").addEventListener("change", atualizarKmTabelas);
 $("#km-export").addEventListener("click", () => {
   window.location.href = "/api/exportar/km-mensal";
+});
+
+// ----------------------------------------------------------------------------
+// COMBUSTÍVEL
+// ----------------------------------------------------------------------------
+let combMesesCarregados = false;
+
+async function carregarFiltrosCombustivel() {
+  if (combMesesCarregados) return;
+  combMesesCarregados = true;
+  try {
+    const [meses, medias] = await Promise.all([
+      getJSON("/api/combustivel/meses"),
+      getJSON("/api/combustivel/medias-cdd-tipo"),
+    ]);
+    const selMes = $("#comb-filtro-mes");
+    selMes.innerHTML = '<option value="">Todos</option>';
+    meses.forEach((m) => selMes.appendChild(el("option", { value: `${m.ano}-${m.mes}` }, mesLabel(m.ano, m.mes))));
+
+    const unidades = new Set(medias.map((m) => m.unidade));
+    const selUnid = $("#comb-filtro-unidade");
+    selUnid.innerHTML = '<option value="">Todas</option>';
+    [...unidades].sort((a, b) => a.localeCompare(b, "pt-BR"))
+      .forEach((u) => selUnid.appendChild(el("option", { value: u }, u)));
+  } catch (_) {}
+}
+
+function combFiltros() {
+  const mesVal = $("#comb-filtro-mes").value;
+  const params = new URLSearchParams();
+  if (mesVal) {
+    const [ano, mes] = mesVal.split("-");
+    params.set("ano", ano); params.set("mes", mes);
+  }
+  const unidade = $("#comb-filtro-unidade").value;
+  if (unidade) params.set("unidade", unidade);
+  const tipo = $("#comb-filtro-tipo").value;
+  if (tipo) params.set("tipo", tipo);
+  return params;
+}
+
+async function carregarCombustivel() {
+  await carregarFiltrosCombustivel();
+  await atualizarCombustivelTabelas();
+  await atualizarCorrecao();
+}
+
+async function atualizarCombustivelTabelas() {
+  const params = combFiltros();
+  $("#comb-info").innerHTML = `<span class="spinner"></span> Carregando…`;
+  try {
+    const { detalhe, medias, alertas, alertas_historico, ranking, mensal } =
+      await getJSON("/api/combustivel/dashboard?" + params.toString());
+    renderCombCards(detalhe);
+    renderCombChart(mensal);
+    renderCombMedias(medias);
+    renderCombAlertas(alertas);
+    renderCombAlertasHistorico(alertas_historico);
+    renderCombRanking(ranking);
+    renderCombDetalhe(detalhe);
+    $("#comb-info").textContent = `${detalhe.length} registro(s) de placa/mês.`;
+  } catch (e) {
+    $("#comb-info").textContent = "Erro: " + e.message;
+  }
+}
+
+function renderCombCards(detalhe) {
+  const litros = detalhe.reduce((s, r) => s + (r.litros || 0), 0);
+  const valor = detalhe.reduce((s, r) => s + (r.valor_pago || 0), 0);
+  const kmRodado = detalhe.reduce((s, r) => s + (r.km_rodado_combustivel || 0), 0);
+  const kmLitroGeral = kmRodado ? kmRodado / litros : 0;
+  const precoMedio = litros ? valor / litros : 0;
+  const veiculos = new Set(detalhe.map((r) => r.placa_norm)).size;
+
+  const cardsEl = $("#comb-cards");
+  cardsEl.innerHTML = "";
+  cardsEl.appendChild(card(veiculos, "Veículos com abastecimento", "accent"));
+  cardsEl.appendChild(card(fmtNum(Math.round(litros)), "Litros de diesel", ""));
+  cardsEl.appendChild(card(moeda(valor), "Valor gasto", "amber"));
+  cardsEl.appendChild(card(moeda(precoMedio), "Preço médio/litro", ""));
+  cardsEl.appendChild(card(fmtNum(kmLitroGeral.toFixed(2)), "KM/L médio geral", "green"));
+}
+
+function renderCombChart(mensal) {
+  const wrap = $("#comb-chart");
+  wrap.innerHTML = "";
+
+  if (!mensal.length) {
+    wrap.appendChild(el("div", { class: "vazio", style: "padding:24px" }, "Sem dados para exibir."));
+    return;
+  }
+
+  const H = 260, padL = 76, padR = 16, padT = 20, padB = 34;
+  const W = Math.max(560, mensal.length * 84);
+  const areaW = W - padL - padR, areaH = H - padT - padB;
+  const maxVal = Math.max(...mensal.map((d) => d.valor_pago), 1);
+  const gap = areaW / mensal.length;
+  const barW = Math.min(46, gap * 0.55);
+
+  const svg = _svg("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H });
+
+  const NGRID = 4;
+  for (let i = 0; i <= NGRID; i++) {
+    const y = padT + areaH * (1 - i / NGRID);
+    svg.appendChild(_svg("line", {
+      x1: padL, x2: W - padR, y1: y, y2: y,
+      style: "stroke:var(--line);stroke-width:1",
+    }));
+    const txt = _svg("text", {
+      x: padL - 8, y: y + 4, "text-anchor": "end",
+      style: "fill:var(--txt-dim);font-size:11px",
+    });
+    txt.textContent = moeda(maxVal * i / NGRID);
+    svg.appendChild(txt);
+  }
+
+  mensal.forEach((d, i) => {
+    const x = padL + i * gap + (gap - barW) / 2;
+    const h = areaH * (d.valor_pago / maxVal);
+    const y = padT + areaH - h;
+
+    const rect = _svg("rect", { x, y, width: barW, height: Math.max(h, 1), rx: 3, style: "fill:var(--amber)" });
+    rect.appendChild(_svg("title")).textContent = `${mesLabel(d.ano, d.mes)}: ${moeda(d.valor_pago)} (${fmtNum(d.litros)} L)`;
+    svg.appendChild(rect);
+
+    const valTxt = _svg("text", {
+      x: x + barW / 2, y: y - 6, "text-anchor": "middle",
+      style: "fill:var(--txt);font-size:11px",
+    });
+    valTxt.textContent = "R$ " + fmtNum(Math.round(d.valor_pago / 1000)) + "k";
+    svg.appendChild(valTxt);
+
+    const lbl = _svg("text", {
+      x: x + barW / 2, y: padT + areaH + 18, "text-anchor": "middle",
+      style: "fill:var(--txt-dim);font-size:11px",
+    });
+    lbl.textContent = mesLabel(d.ano, d.mes);
+    svg.appendChild(lbl);
+  });
+
+  wrap.appendChild(svg);
+}
+
+const _COMB_MEDIAS_HDRS = ["Unidade", "Tipo", "Veículos", "Litros", "KM rodado", "KM/L médio", "Valor pago", "Custo/KM"];
+const _COMB_MEDIAS_SORT = [
+  (r) => r.unidade || "",
+  (r) => r.tipo || "",
+  (r) => r.veiculos,
+  (r) => r.litros,
+  (r) => r.km_rodado,
+  (r) => r.km_litro_medio,
+  (r) => r.valor_pago,
+  (r) => r.custo_por_km,
+];
+function renderCombMedias(medias) {
+  renderTabelaOrdenavel("comb-tabela-medias", _COMB_MEDIAS_HDRS, medias, _COMB_MEDIAS_SORT, (r) => [
+    el("td", {}, r.unidade),
+    el("td", { class: "center" }, r.tipo),
+    el("td", { class: "center" }, r.veiculos),
+    el("td", { class: "center" }, fmtNum(r.litros)),
+    el("td", { class: "center" }, fmtNum(r.km_rodado)),
+    el("td", { class: "center" }, fmtNum(r.km_litro_medio)),
+    el("td", { class: "center" }, moeda(r.valor_pago)),
+    el("td", { class: "center" }, moeda(r.custo_por_km)),
+  ]);
+}
+
+const _COMB_ALERTAS_HDRS = ["Placa", "Unidade", "Tipo", "Mês", "KM/L", "KM/L médio do tipo", "Desvio %"];
+const _COMB_ALERTAS_SORT = [
+  (r) => r.placa || "",
+  (r) => r.unidade || "",
+  (r) => r.tipo || "",
+  (r) => r.ano * 100 + r.mes,
+  (r) => r.km_litro,
+  (r) => r.km_litro_medio_tipo,
+  (r) => r.desvio_pct,
+];
+function renderCombAlertas(alertas) {
+  renderTabelaOrdenavel("comb-tabela-alertas", _COMB_ALERTAS_HDRS, alertas, _COMB_ALERTAS_SORT, (r) => [
+    el("td", {}, placaBadge(r.placa, null)),
+    el("td", {}, r.unidade || "—"),
+    el("td", { class: "center" }, tipoCell(r)),
+    el("td", { class: "center" }, mesLabel(r.ano, r.mes)),
+    el("td", { class: "center" }, fmtNum(r.km_litro)),
+    el("td", { class: "center" }, fmtNum(r.km_litro_medio_tipo)),
+    el("td", { class: "center" }, el("span", { class: r.desvio_pct < 0 ? "badge red" : "badge purple" },
+      (r.desvio_pct > 0 ? "+" : "") + fmtNum(r.desvio_pct) + "%")),
+  ]);
+}
+
+const _COMB_ALERTAS_HIST_HDRS = ["Placa", "Unidade", "Tipo", "Mês", "KM/L do mês", "KM/L médio da placa",
+  "Meses histórico", "Desvio %", "Nº Abastecimento suspeito", "Data", "Km rodado", "Litros"];
+const _COMB_ALERTAS_HIST_SORT = [
+  (r) => r.placa || "",
+  (r) => r.unidade || "",
+  (r) => r.tipo || "",
+  (r) => r.ano * 100 + r.mes,
+  (r) => r.km_litro,
+  (r) => r.km_litro_medio_placa,
+  (r) => r.meses_historico,
+  (r) => r.desvio_pct,
+  (r) => r.abastecimento_suspeito || 0,
+  (r) => r.abastecimento_data || "",
+  (r) => r.abastecimento_km_rodado || 0,
+  (r) => r.abastecimento_litros || 0,
+];
+function renderCombAlertasHistorico(alertas) {
+  renderTabelaOrdenavel("comb-tabela-alertas-historico", _COMB_ALERTAS_HIST_HDRS, alertas, _COMB_ALERTAS_HIST_SORT, (r) => [
+    el("td", {}, placaBadge(r.placa, null)),
+    el("td", {}, r.unidade || "—"),
+    el("td", { class: "center" }, tipoCell(r)),
+    el("td", { class: "center" }, mesLabel(r.ano, r.mes)),
+    el("td", { class: "center" }, fmtNum(r.km_litro)),
+    el("td", { class: "center" }, fmtNum(r.km_litro_medio_placa)),
+    el("td", { class: "center" }, r.meses_historico),
+    el("td", { class: "center" }, el("span", { class: r.desvio_pct < 0 ? "badge red" : "badge purple" },
+      (r.desvio_pct > 0 ? "+" : "") + fmtNum(r.desvio_pct) + "%")),
+    el("td", { class: "center" }, r.abastecimento_suspeito
+      ? el("span", { class: "badge amber", title: "Corrija esse Nº Abastecimento na origem e reimporte — a reimportação substitui a linha" },
+          String(r.abastecimento_suspeito))
+      : "—"),
+    el("td", { class: "center" }, r.abastecimento_data || "—"),
+    el("td", { class: "center" }, r.abastecimento_km_rodado == null ? "—" : fmtNum(r.abastecimento_km_rodado)),
+    el("td", { class: "center" }, r.abastecimento_litros == null ? "—" : fmtNum(r.abastecimento_litros)),
+  ]);
+}
+
+const _COMB_RANKING_HDRS = ["Placa", "Unidade", "Tipo", "Meses", "Litros", "Litros/mês", "KM rodado", "KM/L médio", "Valor pago", "Custo/KM"];
+const _COMB_RANKING_SORT = [
+  (r) => r.placa || "",
+  (r) => r.unidade || "",
+  (r) => r.tipo || "",
+  (r) => r.meses,
+  (r) => r.litros,
+  (r) => r.litros_medio_mes,
+  (r) => r.km_rodado,
+  (r) => r.km_litro_medio,
+  (r) => r.valor_pago,
+  (r) => r.custo_por_km,
+];
+function renderCombRanking(ranking) {
+  renderTabelaOrdenavel("comb-tabela-ranking", _COMB_RANKING_HDRS, ranking, _COMB_RANKING_SORT, (r) => [
+    el("td", {}, placaBadge(r.placa, null)),
+    el("td", {}, r.unidade || "—"),
+    el("td", { class: "center" }, tipoCell(r)),
+    el("td", { class: "center" }, r.meses),
+    el("td", { class: "center" }, fmtNum(r.litros)),
+    el("td", { class: "center" }, fmtNum(r.litros_medio_mes)),
+    el("td", { class: "center" }, fmtNum(r.km_rodado)),
+    el("td", { class: "center" }, fmtNum(r.km_litro_medio)),
+    el("td", { class: "center" }, moeda(r.valor_pago)),
+    el("td", { class: "center" }, moeda(r.custo_por_km)),
+  ]);
+}
+
+const _COMB_DETALHE_HDRS = ["Placa", "Unidade", "No FT", "Tipo", "Mês", "Abast.", "Litros",
+  "KM combustível", "KM telemetria", "Delta KM %", "KM/L", "Valor pago", "Custo/KM"];
+const _COMB_DETALHE_SORT = [
+  (r) => r.placa || "",
+  (r) => r.unidade || "",
+  (r) => (r.no_ft ? 1 : 0),
+  (r) => r.tipo || "",
+  (r) => r.ano * 100 + r.mes,
+  (r) => r.abastecimentos,
+  (r) => r.litros,
+  (r) => r.km_rodado_combustivel,
+  (r) => (r.km_telemetria == null ? -1 : r.km_telemetria),
+  (r) => (r.delta_km_pct == null ? -Infinity : r.delta_km_pct),
+  (r) => r.km_litro,
+  (r) => r.valor_pago,
+  (r) => r.custo_por_km,
+];
+function renderCombDetalhe(detalhe) {
+  renderTabelaOrdenavel("comb-tabela-detalhe", _COMB_DETALHE_HDRS, detalhe, _COMB_DETALHE_SORT, (r) => [
+    el("td", {}, placaBadge(r.placa, null)),
+    el("td", {}, r.unidade || "—"),
+    el("td", { class: "center" }, r.no_ft
+      ? el("span", { class: "badge green" }, "Sim")
+      : el("span", { class: "badge gray" }, "Não")),
+    el("td", { class: "center" }, tipoCell(r)),
+    el("td", { class: "center" }, mesLabel(r.ano, r.mes)),
+    el("td", { class: "center" }, r.abastecimentos),
+    el("td", { class: "center" }, fmtNum(r.litros)),
+    el("td", { class: "center" }, fmtNum(r.km_rodado_combustivel)),
+    el("td", { class: "center" }, r.km_telemetria == null ? "—" : fmtNum(r.km_telemetria)),
+    el("td", { class: "center" }, r.delta_km_pct == null ? "—" : el("span",
+      { class: Math.abs(r.delta_km_pct) >= 20 ? "badge purple" : "" },
+      (r.delta_km_pct > 0 ? "+" : "") + fmtNum(r.delta_km_pct) + "%")),
+    el("td", { class: "center" }, fmtNum(r.km_litro)),
+    el("td", { class: "center" }, moeda(r.valor_pago)),
+    el("td", { class: "center" }, moeda(r.custo_por_km)),
+  ]);
+}
+
+$("#comb-atualizar").addEventListener("click", atualizarCombustivelTabelas);
+$("#comb-filtro-mes").addEventListener("change", atualizarCombustivelTabelas);
+$("#comb-filtro-unidade").addEventListener("change", atualizarCombustivelTabelas);
+$("#comb-filtro-tipo").addEventListener("change", atualizarCombustivelTabelas);
+$("#comb-export").addEventListener("click", () => {
+  window.location.href = "/api/exportar/combustivel";
+});
+
+// ── Relatório de correção de KM (comparação diária) ─────────────────────────
+function corrFiltros() {
+  const params = new URLSearchParams();
+  const mesVal = $("#comb-filtro-mes").value;
+  if (mesVal) {
+    const [ano, mes] = mesVal.split("-");
+    params.set("ano", ano); params.set("mes", mes);
+  }
+  params.set("desvio_min", $("#corr-desvio-min").value || 20);
+  params.set("diferenca_km_min", $("#corr-diferenca-min").value || 50);
+  return params;
+}
+
+const _COMB_CORRECAO_HDRS = ["Nº Abastecimento", "Placa", "Data", "Data abast. anterior",
+  "Km rodado informado", "Km telemetria (período)", "Diferença (km)", "Desvio %",
+  "Quilometragem informada", "Quilometragem sugerida", "Litros"];
+const _COMB_CORRECAO_SORT = [
+  (r) => r.nro_abastecimento,
+  (r) => r.placa || "",
+  (r) => r.data || "",
+  (r) => r.data_abastecimento_anterior || "",
+  (r) => r.km_rodado_informado,
+  (r) => r.km_telemetria_periodo,
+  (r) => r.diferenca_km,
+  (r) => r.desvio_pct,
+  (r) => r.quilometragem_informada || 0,
+  (r) => r.quilometragem_sugerida || 0,
+  (r) => r.litros || 0,
+];
+function renderCombCorrecao(dados) {
+  renderTabelaOrdenavel("comb-tabela-correcao", _COMB_CORRECAO_HDRS, dados, _COMB_CORRECAO_SORT, (r) => [
+    el("td", {}, el("span", { class: "badge amber" }, String(r.nro_abastecimento))),
+    el("td", {}, placaBadge(r.placa, null)),
+    el("td", { class: "center" }, r.data),
+    el("td", { class: "center" }, r.data_abastecimento_anterior),
+    el("td", { class: "center" }, fmtNum(r.km_rodado_informado)),
+    el("td", { class: "center" }, fmtNum(r.km_telemetria_periodo)),
+    el("td", { class: "center" }, fmtNum(r.diferenca_km)),
+    el("td", { class: "center" }, el("span", { class: r.desvio_pct < 0 ? "badge red" : "badge purple" },
+      (r.desvio_pct > 0 ? "+" : "") + fmtNum(r.desvio_pct) + "%")),
+    el("td", { class: "center" }, r.quilometragem_informada == null ? "—" : fmtNum(r.quilometragem_informada)),
+    el("td", { class: "center" }, r.quilometragem_sugerida == null ? "—" : fmtNum(r.quilometragem_sugerida)),
+    el("td", { class: "center" }, fmtNum(r.litros)),
+  ]);
+}
+
+async function atualizarCorrecao() {
+  $("#corr-info").innerHTML = `<span class="spinner"></span> Carregando…`;
+  try {
+    const dados = await getJSON("/api/combustivel/correcao?" + corrFiltros().toString());
+    renderCombCorrecao(dados);
+    $("#corr-info").textContent = `${dados.length} abastecimento(s) sinalizado(s) para correção.`;
+  } catch (e) {
+    $("#corr-info").textContent = "Erro: " + e.message;
+  }
+}
+
+$("#corr-atualizar").addEventListener("click", atualizarCorrecao);
+$("#corr-export").addEventListener("click", () => {
+  window.location.href = "/api/exportar/correcao-km";
 });

@@ -99,10 +99,11 @@ code { background: var(--card); padding: 1px 6px; border-radius: 4px; color: var
 /* Filtros */
 .filtros { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
 .filtros label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--txt-dim); }
-select, input[type=text], input[type=month], textarea {
+select, input[type=text], input[type=month], input[type=date], textarea {
   background: var(--card); border: 1px solid var(--line); color: var(--txt);
   padding: 9px 11px; border-radius: 8px; font-size: 14px; min-width: 170px; font-family: inherit;
 }
+input[type=date] { color-scheme: dark; }
 select:focus, input:focus, textarea:focus { outline: none; border-color: var(--accent); }
 textarea { width: 100%; resize: vertical; }
 
@@ -129,6 +130,12 @@ td.center { text-align: center; vertical-align: middle; }
 #km-tabela-totais th:not(:first-child) { text-align: center; }
 #km-tabela-detalhe th:not(:first-child) { text-align: center; }
 #km-tabela-ranking th:not(:first-child) { text-align: center; }
+#comb-tabela-medias th:not(:first-child) { text-align: center; }
+#comb-tabela-alertas th:not(:first-child) { text-align: center; }
+#comb-tabela-alertas-historico th:not(:first-child) { text-align: center; }
+#comb-tabela-correcao th:not(:first-child) { text-align: center; }
+#comb-tabela-ranking th:not(:first-child) { text-align: center; }
+#comb-tabela-detalhe th:not(:first-child) { text-align: center; }
 .st-resumo-filial th:not(:first-child) { text-align: center; }
 .st-resumo-filial td.num { text-align: center; }
 #st-tabela th:nth-child(1),

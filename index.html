@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gerenciador de Placas</title>
-<link rel="stylesheet" href="./styles.css?v=20260917083904">
+<link rel="stylesheet" href="./styles.css?v=20260922080601">
 </head>
 <body>
 <header class="topbar">
@@ -29,6 +29,7 @@
     <button class="tab" data-tab="stress">Stress Test</button>
     <button class="tab" data-tab="telemetria">Telemetria</button>
     <button class="tab" data-tab="km-mensal">KM Mensal</button>
+    <button class="tab" data-tab="combustivel">Combustível</button>
   </nav>
 </header>
 
@@ -166,6 +167,63 @@
             <span id="tri-file-nome">📡 Selecionar arquivo Trimble</span>
           </label>
           <button id="tri-import-btn" class="btn primary">Importar</button>
+        </div>
+      </div>
+
+      <!-- KM Geotab -->
+      <div class="imp-card">
+        <div class="imp-card-hdr">
+          <div class="imp-card-title">
+            <h3>KM Geotab <span class="badge amber">Telemetria</span></h3>
+            <span class="hint">XLSX — relatório de utilização mensal (KM por placa) · pode importar vários meses de uma vez</span>
+          </div>
+          <a href="/api/download/km-geotab" class="btn">⤓ Baixar dados</a>
+        </div>
+        <div id="kmgeo-status" class="imp-status"></div>
+        <div class="filtros">
+          <label class="filebtn">
+            <input type="file" id="kmgeo-file" accept=".xlsx,.xlsm" multiple>
+            <span id="kmgeo-file-nome">📡 Selecionar arquivo(s) Geotab</span>
+          </label>
+          <button id="kmgeo-import-btn" class="btn primary">Importar</button>
+        </div>
+      </div>
+
+      <!-- KM Veltec -->
+      <div class="imp-card">
+        <div class="imp-card-hdr">
+          <div class="imp-card-title">
+            <h3>KM Veltec <span class="badge amber">Telemetria</span></h3>
+            <span class="hint">CSV — relatório diário por placa (soma o KM do mês) · pode importar vários meses de uma vez</span>
+          </div>
+          <a href="/api/download/km-veltec" class="btn">⤓ Baixar dados</a>
+        </div>
+        <div id="kmvel-status" class="imp-status"></div>
+        <div class="filtros">
+          <label class="filebtn">
+            <input type="file" id="kmvel-file" accept=".csv,.txt" multiple>
+            <span id="kmvel-file-nome">📡 Selecionar arquivo(s) Veltec</span>
+          </label>
+          <button id="kmvel-import-btn" class="btn primary">Importar</button>
+        </div>
+      </div>
+
+      <!-- Combustível -->
+      <div class="imp-card">
+        <div class="imp-card-hdr">
+          <div class="imp-card-title">
+            <h3>Combustível <span class="badge amber">Diesel</span></h3>
+            <span class="hint">CSV — relatório de abastecimento (fintech de combustível) · mantém só linhas de Diesel · reimportar substitui a linha (chave: Nº Abastecimento) — útil pra corrigir um valor errado e reimportar</span>
+          </div>
+          <a href="/api/download/combustivel" class="btn">⤓ Baixar dados</a>
+        </div>
+        <div id="comb-status" class="imp-status"></div>
+        <div class="filtros">
+          <label class="filebtn">
+            <input type="file" id="comb-file" accept=".csv,.txt" multiple>
+            <span id="comb-file-nome">⛽ Selecionar arquivo(s) de abastecimento</span>
+          </label>
+          <button id="comb-import-btn" class="btn primary">Importar</button>
         </div>
       </div>
 
@@ -417,29 +475,22 @@
     <h2>KM Mensal — quilometragem por placa e unidade</h2>
     <p class="hint">Importa os relatórios mensais de utilização Geotab (XLSX) e Veltec (CSV) e calcula o KM percorrido por placa em cada mês, cruzando com a unidade oficial do FreighTech quando disponível. Unidades com mais de um nome cadastrado no FT (ex.: LATA/MALTE/CURITIBANA/PONTA GROSSA) são somadas em um único total.</p>
     <p class="hint"><strong>KM médio (telemetria)</strong>: KM total ÷ nº de placas rastreadas (qualquer tipo). <strong>KM médio (match FT)</strong>: considera só placas de Cavalo/Caminhão/AS/Van com match confirmado entre telemetria e FT. <strong>KM médio por frota ativa</strong>: KM total ÷ média de placas ativas no FT (mesmos tipos) entre a 1ª e a 2ª quinzena do mês.</p>
+    <p class="hint">Para importar os arquivos KM Geotab e KM Veltec, acesse a <button class="link-btn" onclick="document.querySelector('[data-tab=importar]').click()">aba Importar</button>.</p>
 
-    <!-- Importação -->
-    <div class="imp-card" style="margin-top:12px">
+    <!-- Busca de KM por placa/dia -->
+    <div class="imp-card" style="margin-top:16px">
       <div class="imp-card-hdr">
         <div class="imp-card-title">
-          <h3>Importar relatórios mensais <span class="badge amber">Telemetria</span></h3>
-          <span class="hint">Selecione os arquivos GEOTAB_*.xlsx e VELTEC_*.csv (pode importar vários meses de uma vez). Reimportar um mês já existente substitui os dados antigos daquela fonte.</span>
+          <h3>Buscar KM de uma placa num dia específico</h3>
+          <span class="hint">Só disponível para dias com dado importado (Geotab ou Veltec). Km inicial/final exigem hodômetro no relatório — reimporte o mês se aparecer em branco.</span>
         </div>
       </div>
-      <div id="dropzone-km" class="dropzone">
-        <input type="file" id="km-file-input" multiple accept=".xlsx,.xlsm,.csv,.txt">
-        <div class="dz-inner">
-          <span class="dz-icon">⤓</span>
-          <p><strong>Solte os arquivos aqui</strong> ou clique para escolher</p>
-          <p class="hint">GEOTAB_*.xlsx e VELTEC_*.csv, um ou vários meses de uma vez.</p>
-        </div>
+      <div class="filtros">
+        <label>Placa<input type="text" id="km-busca-placa" placeholder="ABC1D23" style="width:120px;text-transform:uppercase"></label>
+        <label>Data<input type="date" id="km-busca-data"></label>
+        <button id="km-busca-btn" class="btn primary">Buscar</button>
       </div>
-      <div id="km-import-status"></div>
-      <div id="km-import-resultado"></div>
-      <div class="filtros" style="margin-top:8px">
-        <span id="km-info-geo" class="imp-status"></span>
-        <span id="km-info-vel" class="imp-status"></span>
-      </div>
+      <div id="km-busca-resultado" style="margin-top:12px"></div>
     </div>
 
     <!-- Filtros e ação -->
@@ -476,6 +527,75 @@
     <div class="tabela-wrap"><table id="km-tabela-detalhe"></table></div>
   </section>
 
+  <!-- ===== COMBUSTÍVEL ===== -->
+  <section id="combustivel" class="panel oculto">
+    <h2>Combustível — consumo de diesel por placa e unidade</h2>
+    <p class="hint">Importa os relatórios de abastecimento e mantém apenas as linhas de Diesel, cruzando com o tipo/unidade oficiais do FT e com o KM da telemetria (aba KM Mensal). A chave é o Nº Abastecimento — reimportar <strong>substitui</strong> a linha existente, então corrigir um valor (ex.: Km rodado) na origem e reimportar já aplica a correção.</p>
+    <p class="hint"><strong>KM/L</strong> é sempre calculado por KM rodado ÷ litros (soma do período), ignorando registros de hodômetro fisicamente impossíveis (negativos ou acima de 20.000 km entre dois abastecimentos — erro comum no 1º abastecimento de uma placa). <strong>Delta KM %</strong> compara o KM rodado informado no abastecimento com o KM da telemetria no mesmo mês.</p>
+    <p class="hint">Para importar os arquivos, acesse a <button class="link-btn" onclick="document.querySelector('[data-tab=importar]').click()">aba Importar</button>.</p>
+
+    <!-- Filtros e ação -->
+    <div class="filtros" style="margin-top:16px">
+      <label>Mês<select id="comb-filtro-mes"><option value="">Todos</option></select></label>
+      <label>Unidade<select id="comb-filtro-unidade"><option value="">Todas</option></select></label>
+      <label>Tipo<select id="comb-filtro-tipo">
+        <option value="">Todos</option>
+        <option value="Cavalo">Cavalo</option>
+        <option value="Caminhão">Caminhão</option>
+        <option value="As">AS</option>
+        <option value="Van">Van</option>
+      </select></label>
+      <button id="comb-atualizar" class="btn primary">Atualizar</button>
+      <button id="comb-export" class="btn">⤓ Exportar Excel</button>
+    </div>
+
+    <div id="comb-info" class="info" style="margin-top:8px"></div>
+
+    <!-- Cards de resumo -->
+    <div id="comb-cards" class="cards" style="margin-top:12px"></div>
+
+    <!-- Gráfico de gasto mensal -->
+    <h3 style="margin-top:16px">Valor gasto com diesel por mês</h3>
+    <div id="comb-chart" class="km-chart-wrap"></div>
+
+    <!-- Médias por CDD x Tipo -->
+    <h3 style="margin-top:16px">Médias por unidade e tipo de frota</h3>
+    <p class="hint">Clique numa coluna para ordenar.</p>
+    <div class="tabela-wrap"><table id="comb-tabela-medias"></table></div>
+
+    <!-- Alertas de consumo -->
+    <h3 style="margin-top:16px">Alertas de consumo fora do padrão</h3>
+    <p class="hint">Placas cujo KM/L do mês se desvia 30% ou mais da média da sua unidade + tipo de frota no período (mínimo 3 veículos no grupo) — para cima (possível erro de hodômetro) ou para baixo (possível problema mecânico, direção ou desvio de combustível).</p>
+    <div class="tabela-wrap"><table id="comb-tabela-alertas"></table></div>
+
+    <!-- Alertas de histórico da própria placa -->
+    <h3 style="margin-top:16px">Alertas — desvio do histórico da própria placa</h3>
+    <p class="hint">Compara o KM/L do mês de cada placa com a <strong>média histórica dela mesma</strong> (outros meses), não com o grupo — pega casos onde só aquela placa fugiu do próprio padrão. Aponta o <strong>Nº Abastecimento</strong> mais provável de ter causado a distorção (maior Km rodado individual do mês) para corrigir na planilha de origem e reimportar — a reimportação substitui a linha automaticamente.</p>
+    <div class="tabela-wrap"><table id="comb-tabela-alertas-historico"></table></div>
+
+    <!-- Relatório de correção de KM (por dia) -->
+    <h3 style="margin-top:16px">Relatório de correção de KM — comparação diária</h3>
+    <p class="hint">Cruza cada abastecimento com o <strong>KM diário</strong> da telemetria (Geotab/Veltec) somado no intervalo exato entre ele e o abastecimento anterior da mesma placa — mais preciso que comparar médias do mês. Só considera abastecimentos com cobertura diária de telemetria completa no intervalo. Exporte e envie para o sistema que gerencia o combustível.</p>
+    <div class="filtros">
+      <label>Desvio mínimo (%)<input type="number" id="corr-desvio-min" value="20" min="0" step="5" style="width:90px"></label>
+      <label>Diferença mínima (km)<input type="number" id="corr-diferenca-min" value="50" min="0" step="10" style="width:90px"></label>
+      <button id="corr-atualizar" class="btn primary">Atualizar</button>
+      <button id="corr-export" class="btn">⤓ Exportar relatório de correção</button>
+    </div>
+    <div id="corr-info" class="info" style="margin-top:8px"></div>
+    <div class="tabela-wrap"><table id="comb-tabela-correcao"></table></div>
+
+    <!-- Ranking por placa -->
+    <h3 style="margin-top:16px">Ranking por placa — todo o período</h3>
+    <p class="hint">Soma o histórico completo de cada placa (ignora o filtro de mês) — ordenado do menor para o maior KM/L (maior consumo primeiro). Clique numa coluna para ordenar.</p>
+    <div class="tabela-wrap"><table id="comb-tabela-ranking"></table></div>
+
+    <!-- Detalhe por placa -->
+    <h3 style="margin-top:16px">Detalhe por placa/mês</h3>
+    <p class="hint">Clique numa coluna para ordenar.</p>
+    <div class="tabela-wrap"><table id="comb-tabela-detalhe"></table></div>
+  </section>
+
 <div id="modal" class="modal oculto">
   <div class="modal-box">
     <button id="modal-close" class="modal-close">×</button>
@@ -486,7 +606,7 @@
 
 <div id="toast" class="toast oculto"></div>
 
-<script src="./shim.js?v=20260917083904"></script>
-<script src="./app.js?v=20260917083904"></script>
+<script src="./shim.js?v=20260922080601"></script>
+<script src="./app.js?v=20260922080601"></script>
 </body>
 </html>
