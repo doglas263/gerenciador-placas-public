@@ -570,6 +570,26 @@
         return fakeResp(apiComparar(body));
       }
       if (p === "/api/verificar" && method === "POST") return fakeResp(apiVerificar(opts.body || new FormData()));
+
+      // ── KM Mensal ──────────────────────────────────────────────────────────
+      if (p === "/api/km-mensal/info") return fakeResp(_DATA.km_info || { geotab: { total: 0, meses: 0 }, veltec: { total: 0, meses: 0 } });
+      if (p === "/api/km-mensal/meses") return fakeResp(_DATA.km_meses || []);
+      if (p === "/api/km-mensal/resumo") return fakeResp(_shimKmResumo(params));
+      if (p === "/api/km-mensal/totais") return fakeResp(_shimKmTotais(params));
+      if (p === "/api/km-mensal/ranking") return fakeResp(_shimKmRanking(params));
+      if (p === "/api/km-mensal/buscar-dia") return fakeResp(_shimKmBuscarDia(params));
+
+      // ── Combustível ────────────────────────────────────────────────────────
+      if (p === "/api/combustivel/info") return fakeResp(_DATA.comb_info || { total: 0, meses: 0 });
+      if (p === "/api/combustivel/meses") return fakeResp(_DATA.comb_meses || []);
+      if (p === "/api/combustivel/medias-cdd-tipo") return fakeResp(_combMedias(_filtrarCombResumo(params, true)));
+      if (p === "/api/combustivel/totais-mensais") return fakeResp(_combTotaisMensais(_filtrarCombResumo(params, false)));
+      if (p === "/api/combustivel/outliers") return fakeResp(_combOutliers(params));
+      if (p === "/api/combustivel/alertas-historico") return fakeResp(_combAlertasHistorico(params));
+      if (p === "/api/combustivel/correcao") return fakeResp(_shimCombCorrecao(params));
+      if (p === "/api/combustivel/ranking") return fakeResp(_combRanking(_filtrarCombResumo(params, false)));
+      if (p === "/api/combustivel/dashboard") return fakeResp(_shimCombDashboard(params));
+
       if (p.startsWith("/api/registro/")) {
         const regId = +p.split("/").pop();
         const reg = REGS.find((r) => r.id === regId);
@@ -585,6 +605,223 @@
       return fakeResp({ erro: String(e) }, 500);
     }
   };
+
+  // ──────────────────────────────────────── KM Mensal helpers
+  function _shimKmResumo(params) {
+    let rows = _DATA.km_resumo || [];
+    const ano = +params.get("ano") || 0, mes = +params.get("mes") || 0;
+    const unidade = params.get("unidade") || "", fonte = params.get("fonte") || "", tipo = params.get("tipo") || "";
+    if (ano) rows = rows.filter((r) => r.ano === ano);
+    if (mes) rows = rows.filter((r) => r.mes === mes);
+    if (unidade) rows = rows.filter((r) => r.unidade === unidade);
+    if (fonte) rows = rows.filter((r) => r.fonte === fonte);
+    if (tipo) rows = rows.filter((r) => r.tipo === tipo);
+    return rows;
+  }
+
+  function _shimKmTotais(params) {
+    const rows = _shimKmResumo(params);
+    const agrup = {};
+    rows.forEach((r) => {
+      const k = `${r.unidade || ""}|${r.ano}|${r.mes}`;
+      if (!agrup[k]) agrup[k] = { unidade: r.unidade || "(sem unidade)", ano: r.ano, mes: r.mes, veiculos: 0, km_total: 0, veiculos_match: 0, km_total_match: 0, frotas_ativas_media: 0, km_medio_frota_ativa: 0 };
+      const a = agrup[k];
+      a.veiculos++;
+      a.km_total += r.km || 0;
+      if (r.no_ft && ["Cavalo", "Caminhão", "As", "Van"].includes(r.tipo)) {
+        a.veiculos_match++;
+        a.km_total_match += r.km || 0;
+      }
+    });
+    return Object.values(agrup).map((a) => ({
+      ...a,
+      km_total: Math.round(a.km_total * 10) / 10,
+      km_medio: a.veiculos ? Math.round(a.km_total / a.veiculos * 10) / 10 : 0,
+      km_total_match: Math.round(a.km_total_match * 10) / 10,
+      km_medio_match: a.veiculos_match ? Math.round(a.km_total_match / a.veiculos_match * 10) / 10 : 0,
+    })).sort((a, b) => b.ano - a.ano || b.mes - a.mes || a.unidade.localeCompare(b.unidade, "pt-BR"));
+  }
+
+  function _shimKmRanking(params) {
+    let rows = _DATA.km_resumo || [];
+    const unidade = params.get("unidade") || "", fonte = params.get("fonte") || "", tipo = params.get("tipo") || "";
+    if (unidade) rows = rows.filter((r) => r.unidade === unidade);
+    if (fonte) rows = rows.filter((r) => r.fonte === fonte);
+    if (tipo) rows = rows.filter((r) => r.tipo === tipo);
+    const agrup = {};
+    [...rows].reverse().forEach((r) => {
+      const pn = r.placa_norm;
+      if (!agrup[pn]) agrup[pn] = { placa: r.placa, placa_norm: pn, unidade: r.unidade, tipo: r.tipo, no_ft: r.no_ft, meses: 0, km_total: 0, km_min: Infinity, km_max: -Infinity };
+      const a = agrup[pn];
+      a.meses++;
+      a.km_total += r.km || 0;
+      if (r.km) { a.km_min = Math.min(a.km_min, r.km); a.km_max = Math.max(a.km_max, r.km); }
+    });
+    return Object.values(agrup).map((a) => ({
+      ...a,
+      km_total: Math.round(a.km_total),
+      km_medio: a.meses ? Math.round(a.km_total / a.meses) : 0,
+      km_min: a.km_min === Infinity ? 0 : a.km_min,
+      km_max: a.km_max === -Infinity ? 0 : a.km_max,
+    })).sort((a, b) => b.km_total - a.km_total);
+  }
+
+  function _shimKmBuscarDia(params) {
+    const placaRaw = (params.get("placa") || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const data = params.get("data") || "";
+    if (!placaRaw || !data) return { erro: "Informe placa e data." };
+    const rows = (_DATA.km_diario || []).filter((r) => {
+      const pn = (r.placa_norm || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      return pn === placaRaw || (r.placa || "").toUpperCase().replace(/[^A-Z0-9]/g, "") === placaRaw;
+    });
+    const exatos = rows.filter((r) => r.data === data);
+    if (exatos.length) {
+      return { exato: true, resultados: exatos.map((r) => ({
+        placa: r.placa, fonte: r.fonte, data: r.data,
+        km_rodado: r.km, km_inicial: r.km_inicial, km_final: r.km_final,
+        km_medio: (r.km_inicial != null && r.km_final != null) ? Math.round((r.km_inicial + r.km_final) / 2) : null,
+        unidade_telemetria: r.unidade_telem, unidade_ft: null, tipo_ft: null, unidade_ft_exata: false,
+      })) };
+    }
+    const datas = [...new Set(rows.map((r) => r.data))].sort();
+    return { exato: false, data_anterior: datas.filter((d) => d < data).pop() || null, data_posterior: datas.find((d) => d > data) || null };
+  }
+
+  // ──────────────────────────────────────── Combustível helpers
+  function _filtrarCombResumo(params, usarMes) {
+    let rows = _DATA.comb_resumo || [];
+    const unidade = params.get("unidade") || "", tipo = params.get("tipo") || "";
+    if (usarMes) {
+      const ano = +params.get("ano") || 0, mes = +params.get("mes") || 0;
+      if (ano) rows = rows.filter((r) => r.ano === ano);
+      if (mes) rows = rows.filter((r) => r.mes === mes);
+    }
+    if (unidade) rows = rows.filter((r) => r.unidade === unidade);
+    if (tipo) rows = rows.filter((r) => r.tipo === tipo);
+    return rows;
+  }
+
+  function _combMedias(linhas) {
+    const agrup = {};
+    linhas.forEach((r) => {
+      const k = `${r.unidade || "(sem unidade)"}|${r.tipo || "(sem tipo)"}`;
+      if (!agrup[k]) agrup[k] = { unidade: r.unidade || "(sem unidade)", tipo: r.tipo || "(sem tipo)", veiculos: 0, litros: 0, km_rodado: 0, valor_pago: 0 };
+      const a = agrup[k];
+      a.veiculos++; a.litros += r.litros; a.km_rodado += r.km_rodado_combustivel; a.valor_pago += r.valor_pago;
+    });
+    return Object.values(agrup).map((a) => ({
+      ...a,
+      litros: Math.round(a.litros * 10) / 10, km_rodado: Math.round(a.km_rodado * 10) / 10,
+      valor_pago: Math.round(a.valor_pago * 100) / 100,
+      km_litro_medio: a.litros ? Math.round(a.km_rodado / a.litros * 100) / 100 : 0,
+      custo_por_km: a.km_rodado ? Math.round(a.valor_pago / a.km_rodado * 100) / 100 : 0,
+    })).sort((a, b) => a.unidade.localeCompare(b.unidade, "pt-BR") || a.tipo.localeCompare(b.tipo, "pt-BR"));
+  }
+
+  function _combTotaisMensais(linhas) {
+    const agrup = {};
+    linhas.forEach((r) => {
+      const k = `${r.ano}|${r.mes}`;
+      if (!agrup[k]) agrup[k] = { ano: r.ano, mes: r.mes, litros: 0, valor_pago: 0, km_rodado: 0, veiculos: 0 };
+      const a = agrup[k];
+      a.litros += r.litros; a.valor_pago += r.valor_pago; a.km_rodado += r.km_rodado_combustivel; a.veiculos++;
+    });
+    return Object.values(agrup).map((a) => ({
+      ...a,
+      litros: Math.round(a.litros * 10) / 10, valor_pago: Math.round(a.valor_pago * 100) / 100,
+      km_rodado: Math.round(a.km_rodado * 10) / 10,
+      preco_medio_litro: a.litros ? Math.round(a.valor_pago / a.litros * 1000) / 1000 : 0,
+    })).sort((a, b) => a.ano - b.ano || a.mes - b.mes);
+  }
+
+  function _combOutliersLinhas(linhas, desvioMin) {
+    const comLitro = linhas.filter((r) => r.litros > 0 && r.tipo);
+    const grupos = {};
+    comLitro.forEach((r) => { (grupos[`${r.unidade}|${r.tipo}`] = grupos[`${r.unidade}|${r.tipo}`] || []).push(r.km_litro); });
+    const medias = {};
+    Object.entries(grupos).forEach(([k, v]) => { if (v.length >= 3) medias[k] = v.reduce((s, x) => s + x, 0) / v.length; });
+    return comLitro.reduce((res, r) => {
+      const media = medias[`${r.unidade}|${r.tipo}`];
+      if (!media) return res;
+      const desvio = Math.round((r.km_litro - media) / media * 100 * 10) / 10;
+      if (Math.abs(desvio) >= desvioMin) res.push({ ...r, km_litro_medio_tipo: Math.round(media * 100) / 100, desvio_pct: desvio });
+      return res;
+    }, []).sort((a, b) => a.desvio_pct - b.desvio_pct);
+  }
+
+  function _combOutliers(params) {
+    return _combOutliersLinhas(_filtrarCombResumo(params, true), +params.get("desvio_min") || 30);
+  }
+
+  function _combAlertasHistorico(params) {
+    const desvioMin = +params.get("desvio_min") || 30;
+    const linhasMes = _filtrarCombResumo(params, true);
+    const linhasTodas = _filtrarCombResumo(params, false);
+    const hist = {};
+    linhasTodas.filter((r) => r.litros > 0).forEach((r) => { (hist[r.placa_norm] = hist[r.placa_norm] || []).push(r.km_litro); });
+    const mediasHist = {};
+    Object.entries(hist).forEach(([pn, v]) => { if (v.length >= 2) mediasHist[pn] = v.reduce((s, x) => s + x, 0) / v.length; });
+    return linhasMes.filter((r) => r.litros > 0).reduce((res, r) => {
+      const media = mediasHist[r.placa_norm];
+      if (!media) return res;
+      const desvio = Math.round((r.km_litro - media) / media * 100 * 10) / 10;
+      if (Math.abs(desvio) >= desvioMin) res.push({ ...r, km_litro_medio_historico: Math.round(media * 100) / 100, desvio_pct: desvio });
+      return res;
+    }, []).sort((a, b) => a.desvio_pct - b.desvio_pct);
+  }
+
+  function _combRanking(linhas) {
+    const agrup = {};
+    [...linhas].reverse().forEach((r) => {
+      const pn = r.placa_norm;
+      if (!agrup[pn]) agrup[pn] = { placa: r.placa, placa_norm: pn, unidade: r.unidade, tipo: r.tipo, meses: 0, litros: 0, km_rodado: 0, valor_pago: 0, abastecimentos: 0 };
+      const a = agrup[pn];
+      a.meses++; a.litros += r.litros; a.km_rodado += r.km_rodado_combustivel; a.valor_pago += r.valor_pago; a.abastecimentos += r.abastecimentos;
+    });
+    return Object.values(agrup).map((a) => ({
+      ...a,
+      litros: Math.round(a.litros * 10) / 10, km_rodado: Math.round(a.km_rodado * 10) / 10,
+      valor_pago: Math.round(a.valor_pago * 100) / 100,
+      km_litro_medio: a.litros ? Math.round(a.km_rodado / a.litros * 100) / 100 : 0,
+      custo_por_km: a.km_rodado ? Math.round(a.valor_pago / a.km_rodado * 100) / 100 : 0,
+    })).sort((a, b) => b.litros - a.litros);
+  }
+
+  function _shimCombCorrecao(params) {
+    let rows = _DATA.comb_correcao || [];
+    const ano = +params.get("ano") || 0, mes = +params.get("mes") || 0;
+    const desvioMin = +params.get("desvio_min") || 20;
+    const difMin = +params.get("diferenca_km_min") || 50;
+    if (ano) rows = rows.filter((r) => { const d = r.data || ""; return +d.slice(0, 4) === ano; });
+    if (mes) rows = rows.filter((r) => { const d = r.data || ""; return +d.slice(5, 7) === mes; });
+    return rows.filter((r) => Math.abs(r.desvio_pct || 0) >= desvioMin && Math.abs(r.diferenca_km || 0) >= difMin);
+  }
+
+  function _shimCombDashboard(params) {
+    const linhasMes = _filtrarCombResumo(params, true);
+    const linhasTodas = _filtrarCombResumo(params, false);
+    const desvioMin = +params.get("desvio_min") || 30;
+    return {
+      detalhe: linhasMes,
+      medias: _combMedias(linhasMes),
+      alertas: _combOutliersLinhas(linhasMes, desvioMin),
+      alertas_historico: (() => {
+        const hist = {};
+        linhasTodas.filter((r) => r.litros > 0).forEach((r) => { (hist[r.placa_norm] = hist[r.placa_norm] || []).push(r.km_litro); });
+        const mediasHist = {};
+        Object.entries(hist).forEach(([pn, v]) => { if (v.length >= 2) mediasHist[pn] = v.reduce((s, x) => s + x, 0) / v.length; });
+        return linhasMes.filter((r) => r.litros > 0).reduce((res, r) => {
+          const media = mediasHist[r.placa_norm];
+          if (!media) return res;
+          const desvio = Math.round((r.km_litro - media) / media * 100 * 10) / 10;
+          if (Math.abs(desvio) >= desvioMin) res.push({ ...r, km_litro_medio_historico: Math.round(media * 100) / 100, desvio_pct: desvio });
+          return res;
+        }, []).sort((a, b) => a.desvio_pct - b.desvio_pct);
+      })(),
+      ranking: _combRanking(linhasTodas),
+      mensal: _combTotaisMensais(linhasTodas),
+    };
+  }
 
   // --------------------------------------------------------- UI: executada após data.json carregar
   function _setupUI() {
