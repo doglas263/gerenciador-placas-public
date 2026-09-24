@@ -570,6 +570,13 @@
         return fakeResp(apiComparar(body));
       }
       if (p === "/api/verificar" && method === "POST") return fakeResp(apiVerificar(opts.body || new FormData()));
+      if (p.startsWith("/api/registro/")) {
+        const regId = +p.split("/").pop();
+        const reg = REGS.find((r) => r.id === regId);
+        if (!reg) return fakeResp({ erro: "não encontrado" }, 404);
+        const { raw_json, ...d } = reg;
+        return fakeResp({ ...d, raw: d });
+      }
       if (p.startsWith("/api/exportar/") || p.startsWith("/api/download/") || p.startsWith("/api/importar") || p.startsWith("/api/reiniciar") || p.startsWith("/api/publicar")) {
         return fakeResp({ erro: "Não disponível na versão pública." }, 403);
       }
@@ -591,8 +598,30 @@
       const primBtn = document.querySelector('[data-tab="inventario"]');
       if (primBtn) primBtn.click();
       document.querySelectorAll('button[id$="-dl-btn"], button[id^="exportar"], .btn-export, [id*="export"]').forEach((b) => {
+        if (b.id === "inv-export") return; // mantém visível; substituído por CSV abaixo
         if (b.textContent?.includes("Baixar") || b.textContent?.includes("Exportar") || b.textContent?.includes("Excel")) b.style.display = "none";
       });
+      // Substitui o botão de exportar Excel por download CSV (gerado no browser)
+      const _invExportBtn = document.getElementById("inv-export");
+      if (_invExportBtn) {
+        _invExportBtn.textContent = "⤓ Exportar CSV";
+        _invExportBtn.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const table = document.getElementById("inv-tabela");
+          if (!table) return;
+          const rows = [...table.querySelectorAll("tr")];
+          const csv = rows.map((tr) =>
+            [...tr.querySelectorAll("th,td")].slice(1)
+              .map((td) => '"' + td.textContent.replace(/"/g, '""').trim() + '"')
+              .join(",")
+          ).join("\n");
+          const a = document.createElement("a");
+          a.href = "data:text/csv;charset=utf-8,﻿" + encodeURIComponent(csv);
+          a.download = "inventario.csv";
+          a.click();
+        }, true);
+      }
       const ts = _DATA.exported_at ? new Date(_DATA.exported_at).toLocaleString("pt-BR") : "";
       if (ts) {
         const badge = document.createElement("span");
